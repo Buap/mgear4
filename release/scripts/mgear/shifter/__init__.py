@@ -454,7 +454,7 @@ class Rig(object):
 
         else:
             name = "global_C0_ctl"
-            icon_shape = "crossarrow"
+            icon_shape = "circle"
 
         self.global_ctl = self.addCtl(
             self.model,
@@ -483,6 +483,12 @@ class Rig(object):
         if self.options["joint_rig"]:
             self.jnt_org = primitive.addTransformFromPos(self.model, "jnt_org")
             pm.connectAttr(self.jntVis_att, self.jnt_org.attr("visibility"))
+
+        # name = "local_C0_ctl"
+        # icon_shape = "crossarrow"
+        # self.local_npo = primitive.addTransform(self.global_ctl, name, datatypes.Matrix())
+        # self.local_ctl =  self.addCtl( self.local_npo, name, datatypes.Matrix(), self.options["C_color_ik"], icon_shape, w=8)
+        # attribute.setKeyableAttributes(self.local_ctl, ["tx", "ty", "tz", "ro", "rx", "ry", "rz"])
 
     def processComponents(self):
         """

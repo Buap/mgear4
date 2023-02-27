@@ -850,6 +850,64 @@ def createClampNodeMulti(name, inputs=[], in_min=[], in_max=[]):
 
 
 #############################################
+# Float Math nodes
+#############################################
+def createFloatMath(A, B, operation=0):
+    fm = pm.createNode("floatMath")
+    fm.operation.set(operation)
+    
+    if isinstance(A, pm.Attribute):
+        A.connect(fm.floatA)
+    else:
+        fm.floatA.set(A)
+
+    if isinstance(B, pm.Attribute):
+        B.connect(fm.floatB)
+    else:
+        fm.floatB.set(B)
+
+    return fm
+
+def createFloatConst(fl=0):
+    fc = pm.createNode("floatConstant")
+    fc.inFloat.set(fl)
+
+    return fc
+
+def createFloatAdd(A, B):
+    return createFloatMath(A, B, 0)
+
+def createFloatSub(A, B):
+    return createFloatMath(A, B, 1)
+
+def createFloatMul(A, B):
+    return createFloatMath(A, B, 2)
+
+def createFloatDiv(A, B):
+    return createFloatMath(A, B, 3)
+
+def createFloatPow(A, B):
+    return createFloatMath(A, B, 6)
+
+
+
+
+
+# for item, s in zip(inputA, "XYZ"):
+#         if (isinstance(item, string_types)
+#                 or isinstance(item, pm.Attribute)):
+#             try:
+#                 pm.connectAttr(item, node + ".input1" + s, f=True)
+#             except(UnicodeEncodeError, RuntimeError):
+#                 # Maya in Japanese have an issue with unicodeEndoce
+#                 # UnicodeEncodeError is a workaround
+#                 pm.connectAttr(item, node + ".input1", f=True)
+#                 break
+
+#         else:
+#             pm.setAttr(node + ".input1" + s, item)
+
+#############################################
 # Ctl tag node
 #############################################
 

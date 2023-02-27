@@ -2,7 +2,8 @@ from functools import partial
 import pymel.core as pm
 
 # mgear
-from mgear.shifter.component.guide import ComponentGuide
+#from mgear.shifter.component.guide import ComponentGuide
+from mgear.shifter.component import guide
 
 import mgear.core.transform as tra
 
@@ -19,14 +20,14 @@ AUTHOR = "Miquel Campos"
 URL = "www.miquel-campos.com"
 EMAIL = ""
 VERSION = [1,0,0]
-TYPE = "vanilla_limb_01"
+TYPE = "ABs_vanilla_arm_01"
 NAME = "limb"
 DESCRIPTION = "2 bones arm/leg using only vanilla Maya nodes"
 
 ##########################################################
 # CLASS
 ##########################################################
-class Guide(ComponentGuide):
+class Guide(guide.ComponentGuide):
 
     compType = TYPE
     compName = NAME
@@ -65,7 +66,7 @@ class Guide(ComponentGuide):
     ## Add more parameter to the parameter definition list.
     # @param self
     def addParameters(self):
-
+        
         # Default Values
         self.pBlend       = self.addParam("blend", "double", 1, 0, 1)
         self.pIkRefArray  = self.addParam("ikrefarray", "string", "")
@@ -78,16 +79,30 @@ class Guide(ComponentGuide):
         self.pWorldAlign       = self.addParam("WorldAlign", "bool", False)
 
 
-        # Divisions
+        # # Divisions
         self.pDiv0 = self.addParam("div0", "long", 2, 0, None)
         self.pDiv1 = self.addParam("div1", "long", 2, 0, None)
 
-        # FCurves
-        self.pSt_profile = self.addFCurveParam("st_profile", [[0,0],[.5,-.5],[1,0]])
-        self.pSq_profile = self.addFCurveParam("sq_profile", [[0,0],[.5,.5],[1,0]])
+        # # FCurves
+        self.pSt_profile = self.addFCurveParam("st_profile",[[0, 0], [.5, -.5], [1, 0]])
+        self.pSq_profile = self.addFCurveParam("sq_profile",[[0, 0], [.5, .5], [1, 0]])
 
         self.pUseIndex       = self.addParam("useIndex", "bool", False)
         self.pParentJointIndex = self.addParam("parentJointIndex", "long", -1, None, None)
+
+    def get_divisions(self):
+        """ Returns correct segments divisions """
+        ej = 2
+        self.divisions = self.root.div0.get() + self.root.div1.get() + 3 + ej
+
+        return self.divisions
+
+    def postDraw(self):
+        "Add post guide draw elements to the guide"
+        size = pm.xform(self.wrist, q=True, ws=True, scale=True)[0]
+        self.add_ref_axis(self.wrist,
+                          self.root.guideOrientWrist,
+                          width=.5 / size)
 
 
 

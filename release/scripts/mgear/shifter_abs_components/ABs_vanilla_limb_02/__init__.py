@@ -45,10 +45,8 @@ import mgear.core.fcurve as fcu
 class Component(MainComponent):
 
     def addObjects(self):
-
+        
         self.realNegate = self.negate
-        # if self.settings["WorldAlign"]:
-        #     self.negate = False
         self.negate = False
 
         self.setup = pri.addTransformFromPos(self.setupWS,  self.getName("WS"))
@@ -64,7 +62,6 @@ class Component(MainComponent):
         self.length2 = vec.getDistance(self.guide.apos[2], self.guide.apos[3])
 
 
-
         # limb chain
         self.limbBones = pri.add2DChain(self.root, self.getName("limbBones%s_jnt"), self.guide.apos[0:3], self.normal, False, self.WIP)
 
@@ -73,7 +70,7 @@ class Component(MainComponent):
 
         # limb chain IK ref
         self.limbBonesIK = pri.add2DChain(self.root, self.getName("limbIK%s_jnt"), self.guide.apos[0:3], self.normal, False, self.WIP)
-
+    
         # 1 bone chain for upv ref
         self.limbChainUpvRef= pri.add2DChain(self.root, self.getName("limbUpvRef%s_jnt"), [self.guide.apos[0],self.guide.apos[2]], self.normal, False, self.WIP)
         self.limbChainUpvRef[1].setAttr("jointOrientZ", self.limbChainUpvRef[1].getAttr("jointOrientZ")*-1)
@@ -105,7 +102,7 @@ class Component(MainComponent):
         for  x in self.fk_ctl:
             att.setInvertMirror(x, ["tx", "ty", "tz"])
 
-
+        
         # IK Controlers -----------------------------------
 
         self.ik_cns = pri.addTransformFromPos(self.root, self.getName("ik_cns"), self.guide.pos["tip"])
@@ -122,7 +119,7 @@ class Component(MainComponent):
             else:
                 m = tra.getTransformLookingAt(self.guide.pos["tip"], self.guide.pos["eff"], self.normal, "xy", False)
         self.ik_ctl = self.addCtl(self.ikcns_ctl, "ik_ctl", m, self.color_ik, "cube", w=self.size*.12, h=self.size*.12, d=self.size*.12, tp=self.ikcns_ctl)
-
+        
         if self.negate:
             m = tra.getTransformLookingAt(self.guide.pos["tip"], self.guide.pos["eff"], self.normal, "x-y", True)
         else:
@@ -135,6 +132,8 @@ class Component(MainComponent):
         else:
             att.setInvertMirror(self.ik_ctl, ["tx", "ry", "rz"])
         att.setKeyableAttributes(self.ik_ctl)
+
+        
         self.ik_ctl_ref = pri.addTransform(self.ik_ctl, self.getName("ikCtl_ref"), m)
 
         self.ik2b_bone_ref = pri.addTransform(self.limbBonesIK[2], self.getName("ik2B_B_ref"), m)
@@ -179,7 +178,7 @@ class Component(MainComponent):
         tB = tra.getTransformLookingAt(self.guide.apos[1], self.guide.apos[2], self.normal, "xz", self.negate)
         t = tra.getInterpolateTransformMatrix(tA, tB)
         self.ctrn_loc = pri.addTransform(self.root, self.getName("ctrn_loc"), t)
-
+        
         # #match IK FK references
         self.match_fk0_off = pri.addTransform(self.root, self.getName("matchFk0_npo"), tra.getTransform(self.fk_ctl[1]))
         self.match_fk0 = pri.addTransform(self.match_fk0_off, self.getName("fk0_mth"), tra.getTransform(self.fk_ctl[0]))
@@ -207,14 +206,17 @@ class Component(MainComponent):
         att.setKeyableAttributes(self.mid_ctl, self.t_params)
 
         # Soft IK objects 2 Bones chain --------------------------------------------------------------------------------------------
-        t = tra.getTransformLookingAt(self.guide.pos["root"], self.guide.pos["tip"], self.x_axis, "zx", False)
+        # t = tra.getTransformLookingAt(self.guide.pos["root"], self.guide.pos["tip"], self.x_axis, "zx", False)
+        t = tra.getTransformLookingAt(self.guide.pos["root"], self.guide.pos["tip"], self.normal, "xz", False)
+        
         self.aim_tra2 = pri.addTransform(self.root, self.getName("aimSoftIK2"), t)
-
-        t = tra.getTransformFromPos(self.guide.pos["tip"])
+        
+        # t = tra.getTransformFromPos(self.guide.pos["tip"])
+        t = tra.setMatrixPosition(t, self.guide.pos["tip"])
         self.tipSoftIK = pri.addTransform(self.aim_tra2, self.getName("tipSoftIK"), t)
-
+        
         self.softblendLoc2 = pri.addTransform(self.root, self.getName("softblendLoc2"), t)
-
+        
         #Roll join ref---------------------------------
         self.tws0_loc = pri.addTransform(self.root, self.getName("tws0_loc"), tra.getTransform(self.fk_ctl[0]))
 
@@ -272,7 +274,7 @@ class Component(MainComponent):
 
         # Divisions ----------------------------------------
         # We have at least one division at the start, the end and one for the mid. + 2 for mid angle control
-        self.divisions = self.settings["div0"] + self.settings["div1"] + 4
+        self.divisions = self.settings["div0"] + self.settings["div1"] + 3
 
         self.div_cns = []
         for i in range(self.divisions):
@@ -285,8 +287,13 @@ class Component(MainComponent):
 
         # End reference ------------------------------------
         # To help the deformation on the tip
-        # self.eff_loc  = pri.addTransform(self.root, self.getName("eff_loc"), tra.getTransform(self.tws2_loc))
+        #self.eff_loc  = pri.addTransform(self.root, self.getName("eff_loc"), tra.getTransform(self.tws2_loc))
+        
         self.eff_loc  = pri.addTransform(self.limbBones[2], self.getName("eff_loc"), tra.getTransform(self.fk_ctl[2]))
+
+        self.eff_ref  = pri.addTransform(self.root, self.getName("eff_ref"), tra.getTransform(self.fk_ctl[2]))
+        pm.parentConstraint(self.eff_loc,self.eff_ref)
+
         self.end_ref = pri.addTransform(self.eff_loc, self.getName("end_ref"),  tra.getTransform(self.fk_ctl[2]))
         if self.negate:
             self.end_ref.attr("rz").set(180.0)
@@ -340,7 +347,7 @@ class Component(MainComponent):
 
 
     def addAttributes(self):
-        return
+        
         # Anim -------------------------------------------
         self.blend_att = self.addAnimParam("blend", "Fk/Ik Blend", "double", self.settings["blend"], 0, 1)
         self.roll_att = self.addAnimParam("roll", "Roll", "double", 0, -180, 180)
@@ -403,9 +410,8 @@ class Component(MainComponent):
         self.absolute_att = self.addSetupParam("absolute", "Absolute", "bool", False)
 
     def addOperators(self):
-        return
         self.ikSolver = "ikRPsolver"
-
+        
 
         # 1 bone chain Upv ref =====================================================================================
         self.ikHandleUpvRef = pri.addIkHandle(self.root, self.getName("ikHandlelimbChainUpvRef"), self.limbChainUpvRef, "ikSCsolver")
@@ -462,7 +468,7 @@ class Component(MainComponent):
         nod.createMulNode(self.roll_att, mulVal,self.ikHandle2.attr("twist"))
 
         # softIK 2 bones operators
-        aop.aimCns(self.aim_tra2, self.ik2b_ik_ref, axis="zx", wupType=4, wupVector=[1,0,0], wupObject=self.root, maintainOffset=False)
+        aop.aimCns(self.aim_tra2, self.ik2b_ik_ref, axis="xz", wupType=4, wupVector=[1,0,0], wupObject=self.root, maintainOffset=False)
 
         plusTotalLength_node = nod.createPlusMinusAverage1D([multJnt1_node.attr("outputX"), multJnt2_node.attr("outputX")])
         subtract1_node = nod.createPlusMinusAverage1D([plusTotalLength_node.attr("output1D"), self.soft_attr], 2)
@@ -480,7 +486,7 @@ class Component(MainComponent):
         cond1_node = nod.createConditionNode(self.soft_attr, 0, 2,subtract3_node+".output1D", plusTotalLength_node+".output1D")
         cond2_node = nod.createConditionNode(mult1_node+".outputX", subtract1_node+".output1D", 2,cond1_node+".outColorR", mult1_node+".outputX")
 
-        pm.connectAttr(cond2_node+".outColorR", self.tipSoftIK+".tz")
+        pm.connectAttr(cond2_node+".outColorR", self.tipSoftIK+".tx")
 
         #soft blend
         pc_node = pm.pointConstraint( self.tipSoftIK, self.ik2b_ik_ref, self.softblendLoc2)
@@ -664,11 +670,11 @@ class Component(MainComponent):
         # Divisions ----------------------------------------
         # at 0 or 1 the division will follow exactly the rotation of the controler.. and we wont have this nice tangent + roll
         for i, div_cns in enumerate(self.div_cns):
-            if i < (self.settings["div0"]+2):
+            if i < (self.settings["div0"]+1):
                 mulmat_node = nod.createMultMatrixNode(self.upperLimbTwistChain[i]+".worldMatrix", div_cns+".parentInverseMatrix")
                 lastUpperLimbDiv = div_cns
-            else:
-                mulmat_node = nod.createMultMatrixNode(self.lowerLimbTwistChain[i-(self.settings["div0"]+2)]+".worldMatrix", div_cns+".parentInverseMatrix")
+            elif i >= (self.settings["div0"]+1):
+                mulmat_node = nod.createMultMatrixNode(self.lowerLimbTwistChain[i-(self.settings["div0"]+1)]+".worldMatrix", div_cns+".parentInverseMatrix")
                 lastForeDiv = div_cns
             dm_node = nod.createDecomposeMatrixNode(mulmat_node+".matrixSum")
             pm.connectAttr(dm_node+".outputTranslate", div_cns+".t")
@@ -676,9 +682,8 @@ class Component(MainComponent):
 
 
         #force translation for last loc upperLimb and foreamr
-        nod.createMultMatrixNode(self.midTangent_ctl.worldMatrix,lastUpperLimbDiv.parentInverseMatrix, lastUpperLimbDiv, "t" )
+        # nod.createMultMatrixNode(self.midTangent_ctl.worldMatrix,lastUpperLimbDiv.parentInverseMatrix, lastUpperLimbDiv, "t" )
         nod.createMultMatrixNode(self.tws2_loc.worldMatrix,lastForeDiv.parentInverseMatrix, lastForeDiv, "t" )
-
         # return
 
         # NOTE: next line fix the issue on meters.
@@ -701,11 +706,11 @@ class Component(MainComponent):
     ## Set the relation beetween object from guide to rig.\n
     # @param self
     def setRelation(self):
-        return
+        
         self.relatives["root"] = self.div_cns[0]
         self.relatives["mid"] = self.div_cns[self.settings["div0"] + 2]
         self.relatives["tip"] = self.div_cns[-1]
-        self.relatives["eff"] = self.eff_loc
+        self.relatives["eff"] = self.eff_ref
 
         self.jointRelatives["root"] = 0
         self.jointRelatives["mid"] = self.settings["div0"] + 2
@@ -720,13 +725,13 @@ class Component(MainComponent):
     ## Add more connection definition to the set.
     # @param self
     def addConnection(self):
-        return
+        
         self.connections["shoulder_01"] = self.connect_shoulder_01
 
     ## standard connection definition.
     # @param self
     def connect_standard(self):
-        return
+        
         self.connect_standardWithIkRef()
 
         if self.settings["pinrefarray"]:
@@ -734,6 +739,6 @@ class Component(MainComponent):
 
 
     def connect_shoulder_01(self):
-        return
+        
         self.connect_standard()
         pm.parent(self.rollRef[0],self.parent_comp.ctl)
