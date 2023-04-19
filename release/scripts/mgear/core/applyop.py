@@ -83,6 +83,8 @@ def splineIK(name, chn, parent=None, cParent=None, curve=None):
     return node, splineCrv
 
 
+
+
 def oriCns(driver, driven, maintainOffset=False):
     """Apply orientation constraint
 
@@ -244,6 +246,102 @@ def aimCns(obj,
         pm.setAttr(node + "." + name, a[i])
 
     return node
+
+#############################################
+# ABs NODES
+#############################################
+def ABs_matrix_cns(in_obj, out_obj, connect_srt='srt'):
+
+
+    mm = pm.createNode("multMatrix")
+    dm = pm.createNode("decomposeMatrix")
+
+    pm.connectAttr( mm + ".matrixSum", dm + ".inputMatrix", force=True)
+    
+    if isinstance(in_obj, pm.PyNode) and in_obj.type() == "matrix":
+        pm.connectAttr( in_obj, mm + ".matrixIn[0]", force=True)
+    else:
+        pm.connectAttr( in_obj + ".worldMatrix[0]", mm + ".matrixIn[0]", force=True)
+
+    pm.connectAttr( out_obj + ".parentInverseMatrix[0]", mm + ".matrixIn[1]", force=True)
+    
+            # connect srt (scale, rotation, translation)
+    if 't' in connect_srt:
+        pm.connectAttr(dm + ".outputTranslate", out_obj.attr("translate"), f=True)
+    if 'r' in connect_srt:
+        pm.connectAttr(dm + ".outputRotate", out_obj.attr("rotate"), f=True)
+    if 's' in connect_srt:
+        pm.connectAttr(dm + ".outputScale", out_obj.attr("scale"), f=True)
+        pm.connectAttr(dm + ".outputShear", out_obj.attr("shear"), f=True)
+
+def ABs_matrix_cns_offset(in_obj, out_obj, connect_srt='srt'):
+    mm = pm.createNode("multMatrix")
+    dm = pm.createNode("decomposeMatrix")
+
+    mm.matrixIn[0].set(out_obj.worldMatrix[0].get()*in_obj.worldInverseMatrix[0].get())
+    in_obj.worldMatrix[0].connect(mm.matrixIn[1])
+    out_obj.parentInverseMatrix.connect(mm.matrixIn[2])
+
+    mm.matrixSum.connect(dm.inputMatrix)
+
+    if 't' in connect_srt:
+        pm.connectAttr(dm + ".outputTranslate", out_obj.attr("translate"), f=True)
+    if 'r' in connect_srt:
+        pm.connectAttr(dm + ".outputRotate", out_obj.attr("rotate"), f=True)
+    if 's' in connect_srt:
+        pm.connectAttr(dm + ".outputScale", out_obj.attr("scale"), f=True)
+        pm.connectAttr(dm + ".outputShear", out_obj.attr("shear"), f=True)
+
+def ABs_matrix_cns_offset1(in_obj, out_obj, connect_srt='srt'):
+    mm = pm.createNode("multMatrix")
+    mm1 = pm.createNode("multMatrix")
+    dm = pm.createNode("decomposeMatrix")
+    dm1 = pm.createNode("decomposeMatrix")
+
+
+    in_obj.worldMatrix[0].connect(mm.matrixIn[0])
+    out_obj.parentInverseMatrix.connect(mm.matrixIn[1])
+    mm.matrixSum.connect(dm.inputMatrix)
+
+    mm.matrixSum.connect(mm1.matrixIn[0])
+    mm1.matrixIn[1].set(out_obj.worldMatrix[0].get()*in_obj.worldInverseMatrix[0].get())
+    mm1.matrixSum.connect(dm1.inputMatrix)
+
+    if 't' in connect_srt:
+        pm.connectAttr(dm + ".outputTranslate", out_obj.attr("translate"), f=True)
+    if 'r' in connect_srt:
+        pm.connectAttr(dm1 + ".outputRotate", out_obj.attr("rotate"), f=True)
+    if 's' in connect_srt:
+        pm.connectAttr(dm + ".outputScale", out_obj.attr("scale"), f=True)
+        pm.connectAttr(dm + ".outputShear", out_obj.attr("shear"), f=True)
+
+def ABs_SplineIK(name, chn, parent=None, cParent=None, numSpans=1, curve=None):
+    data = {}
+    data["n"] = name
+    data["solver"] = "ikSplineSolver"
+    data["ccv"] = True
+    data["startJoint"] = chn[0]
+    data["endEffector"] = chn[-1]
+    data["ns"] = numSpans
+    if curve is not None:
+        data["curve"] = curve
+
+    node, effector, splineCrv = pm.ikHandle(**data)
+    # converting to pyNode
+    node = pm.PyNode("|" + node)
+    effector = pm.PyNode(effector)
+    splineCrv = pm.PyNode(splineCrv)
+
+    node.setAttr("visibility", False)
+    splineCrv.setAttr("visibility", False)
+    pm.rename(splineCrv, name + "_crv")
+    pm.rename(effector, name + "_eff")
+    if parent is not None:
+        parent.addChild(node)
+    if cParent is not None:
+        cParent.addChild(splineCrv)
+
+    return node, splineCrv
 
 #############################################
 # CUSTOM NODES
@@ -436,7 +534,7 @@ def gear_intmatrix_op(mA, mB, blend=0):
     create mGear interpolate Matrix node.
 
     Arguments:
-        mA (matrix): Input matrix A.
+        mA (matrix): Input matrix A.                                                        
         mB (matrix): Input matrix A.
         blend (float or connection): Blending value.
 

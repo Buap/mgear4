@@ -6,7 +6,12 @@ from pymel.core import datatypes
 from mgear.shifter import component
 
 from mgear.core import node, applyop, vector
-from mgear.core import attribute, transform, primitive
+import mgear.core.primitive as pri
+import mgear.core.transform as tra
+import mgear.core.attribute as att
+import mgear.core.node as nod
+import mgear.core.vector as vec
+import mgear.core.applyop as aop
 
 
 class Component(component.Main):
@@ -17,11 +22,20 @@ class Component(component.Main):
     # =====================================================
     def addObjects(self):
 
+        self.WIP = self.options["mode"]
 
+        self.normal = self.getNormalFromPos(self.guide.apos)
+        self.binormal = self.getBiNormalFromPos(self.guide.apos)
 
+        self.length0 = vec.getDistance(self.guide.apos[0], self.guide.apos[1])
+        self.length1 = vec.getDistance(self.guide.apos[1], self.guide.apos[2])
 
+        self.footBones = pri.add2DChain(self.root, self.getName("footBones%s_jnt"), self.guide.apos[0:3], self.normal, False, self.WIP)
+        self.footBonesFK = pri.add2DChain(self.root, self.getName("footBonesFK%s_jnt"), self.guide.apos[0:3], self.normal, False, self.WIP)
+        self.footBonesIK = pri.add2DChain(self.root, self.getName("footBonesIK%s_jnt"), self.guide.apos[0:3], self.normal, False, self.WIP)
 
-
+        centers = [self.guide.pos["heel"], self.guide.apos[2] ,self.guide.apos[1],self.guide.apos[0]]
+        self.reverseFoot = pri.add2DChain(self.root, self.getName("revFoot%s_jnt"), centers, self.normal, False, self.WIP)
         return
         self.div_count = len(self.guide.apos) - 5
 
@@ -215,6 +229,8 @@ class Component(component.Main):
     # ATTRIBUTES
     # =====================================================
     def addAttributes(self):
+        self.blend_att = self.addAnimParam("blend", "Fk/Ik Blend", "double", 1, 0, 1)
+
         return
         # Anim -------------------------------------------
         # Roll Angles
@@ -275,8 +291,18 @@ class Component(component.Main):
     # =====================================================
 
     def addOperators(self):
+        for i,foot in enumerate(self.footBones):
+            con = pm.parentConstraint(self.footBonesFK[i], self.footBonesIK[i], foot)
+
+            nod.createReverseNode(self.blend_att,  con+".target[0].targetWeight")
+            pm.connectAttr(self.blend_att, con+".target[1].targetWeight", f=True)
         
-        
+
+        # Single ik solvers
+        pri.addIkHandle(self.root, self.getName("ikHandle1"), [self.footBonesIK[0], self.footBonesIK[1]] , "ikSCsolver")
+        pri.addIkHandle(self.root, self.getName("ikHandle2"), [self.footBonesIK[1], self.footBonesIK[2]] , "ikSCsolver")
+
+
         return
         # Visibilities -------------------------------------
 
@@ -427,18 +453,15 @@ class Component(component.Main):
             self.jointRelatives["%s_loc" % self.div_count] = self.div_count - 1
 
     def addConnection(self):
-        """Add more connection definition to the set"""
-        return
         self.connections["vanilla_leg_2jnt_01"] = self.connect_vanilla_leg_2jnt_01
 
     def connect_vanilla_leg_2jnt_01(self):
-        """Connector for leg 2jnt"""
-        return
-        # If the parent component hasn't been generated we skip the connection
         if self.parent_comp is None:
             return
 
         pm.connectAttr(self.parent_comp.blend_att, self.blend_att)
+
+        return
         pm.parent(self.root, self.parent_comp.ik_ctl)
         pm.parent(self.parent_comp.ik_ref, self.bk_ctl[-1])
         pm.parent(self.parent_comp.match_fk2, self.bk_ctl[-1])

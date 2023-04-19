@@ -45,19 +45,24 @@ class Guide(guide.ComponentGuide):
 
     def postInit(self):
         """Initialize the position for the guide"""
-        self.save_transform = ["root", "ball", "toe"]
+        self.save_transform = ["root", "ball", "toe", "heel"]
 
     def addObjects(self):
         """Add the Guide Root, blade and locators"""
-
         self.root = self.addRoot()
 
-        vTemp = transform.getOffsetPosition(self.root, [1,-0.5, 0])
+        vTemp = transform.getOffsetPosition(self.root, [0,-0.55, 1])
         self.ball = self.addLoc("ball", self.root, vTemp)
-        vTemp = transform.getOffsetPosition(self.root, [2, -1, 0])
+        vTemp = transform.getOffsetPosition(self.root, [0, -1, 2])
         self.toe = self.addLoc("toe", self.ball, vTemp)
 
         centers = [self.root, self.ball, self.toe]
+        self.dispcrv = self.addDispCurve("crv", centers)
+
+        vTemp = transform.getOffsetPosition(self.root, [0, -1, -1])
+        self.heel = self.addLoc("heel", self.root, vTemp)
+
+        centers = [self.root, self.heel]
         self.dispcrv = self.addDispCurve("crv", centers)
 
     def addParameters(self):
