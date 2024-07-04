@@ -262,7 +262,7 @@ class Main(object):
         segComp=False,
         gearMulMatrix=False,
         rot_off=None,
-        vanilla_nodes=True,
+        vanilla_nodes=False,
         leaf_joint=False,
         guide_relative=None,
         data_contracts=None,
