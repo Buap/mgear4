@@ -11,10 +11,12 @@ from functools import partial
 # Maya imports
 from maya import cmds, mel
 import pymel.core as pm
+from pymel import versions
 
 # mGear imports
 import mgear
 from mgear.core.anim_utils import reset_all_keyable_attributes
+from mgear.core.anim_utils import bindPose
 from mgear.core.pickWalk import get_all_tag_children
 from mgear.core.transform import resetTransform
 from mgear.core.anim_utils import mirrorPose
@@ -27,6 +29,7 @@ from mgear.core.anim_utils import IkFkTransfer
 from mgear.core.anim_utils import changeSpace
 from mgear.core.anim_utils import getNamespace
 from mgear.core.anim_utils import stripNamespace
+from mgear.core.anim_utils import ParentSpaceTransfer
 
 
 from mgear import shifter
@@ -36,6 +39,8 @@ from mgear.shifter import io
 from mgear.shifter import guide_template
 
 from .six import string_types
+
+from mgear.vendor.Qt import QtWidgets
 
 
 def __change_rotate_order_callback(*args):
@@ -155,6 +160,23 @@ def _find_rig_root(node):
     return ""
 
 
+def _get_switch_node_attrs(node, end_string):
+    """
+    returns list of attr names for given node that match the end_string arg and are not proxy attrs
+    Args:
+        node: str
+    Returns: list of strings
+    """
+    attrs = []
+    for attr in cmds.listAttr(node, userDefined=True, keyable=True) or []:
+        if not attr.lower().endswith(end_string) or cmds.addAttr(
+            "{}.{}".format(node, attr), query=True, usedAsProxy=True
+        ):
+            continue
+        attrs.append(attr)
+    return attrs
+
+
 def __range_switch_callback(*args):
     """Wrapper function to call mGears range fk/ik switch function
 
@@ -181,7 +203,9 @@ def __range_switch_callback(*args):
     # ik_controls, fk_controls = _get_controls(switch_control, blend_attr)
     # search criteria to find all the components sharing the blend
     criteria = blend_attr.replace("_blend", "") + "_id*_ctl_cnx"
-    component_ctl = cmds.listAttr(switch_control, ud=True, string=criteria)
+    component_ctl = (
+        cmds.listAttr(switch_control, ud=True, string=criteria) or []
+    )
     if component_ctl:
         ik_list = []
         ikRot_list = []
@@ -209,6 +233,12 @@ def __range_switch_callback(*args):
             upv=upv_list,
             ikRot=ikRot_list,
         )
+
+
+def __reset_all_transforms_callback(controls, *args):
+    print(controls)
+    for c in controls:
+        resetTransform(c, t=True, r=True, s=True)
 
 
 def __reset_attributes_callback(*args):
@@ -267,7 +297,9 @@ def __switch_fkik_callback(*args):
 
     # search criteria to find all the components sharing the blend
     criteria = blend_attr.replace("_blend", "") + "_id*_ctl_cnx"
-    component_ctl = cmds.listAttr(switch_control, ud=True, string=criteria)
+    component_ctl = (
+        cmds.listAttr(switch_control, ud=True, string=criteria) or []
+    )
     blend_fullname = "{}.{}".format(switch_control, blend_attr)
     for i, comp_ctl_list in enumerate(component_ctl):
         # we need to need to set the original blend value for each ik/fk match
@@ -321,7 +353,9 @@ def __switch_parent_callback(*args):
         attr_name = "_".join(attr_split_name[:-1])
     # search criteria to find all the components sharing the name
     criteria = attr_name + "_id*_ctl_cnx"
-    component_ctl = cmds.listAttr(switch_control, ud=True, string=criteria)
+    component_ctl = (
+        cmds.listAttr(switch_control, ud=True, string=criteria) or []
+    )
 
     target_control_list = []
     for comp_ctl_list in component_ctl:
@@ -405,6 +439,137 @@ def __switch_parent_callback(*args):
             )
 
 
+def __space_transfer_callback(*args):
+    """Wrapper function to call mGears change space function
+
+    Args:
+        list: callback from menuItem
+    """
+
+    # creates a map for non logical components controls
+    control_map = {"elbow": "mid", "rot": "orbit", "knee": "mid"}
+
+    # switch_control = args[0].split("|")[-1].split(":")[-1]
+    switch_control = args[0].split("|")[-1]
+    uiHost = pm.PyNode(switch_control)  # UiHost is switch PyNode pointer
+    switch_attr = args[1]
+    combo_box = args[2]
+    search_token = switch_attr.split("_")[-1].split("ref")[0].split("Ref")[0]
+    print(search_token)
+    target_control = None
+
+    # control_01 attr don't standard name ane need to be check
+    attr_split_name = switch_attr.split("_")
+    if len(attr_split_name) <= 2:
+        attr_name = attr_split_name[0]
+    else:
+        attr_name = "_".join(attr_split_name[:-1])
+    # search criteria to find all the components sharing the name
+    criteria = attr_name + "_id*_ctl_cnx"
+    component_ctl = (
+        cmds.listAttr(switch_control, ud=True, string=criteria) or []
+    )
+
+    target_control_list = []
+    for comp_ctl_list in component_ctl:
+
+        # first search for tokens match in all controls. If not token is found
+        # we will use all controls for the switch
+        # this token match is a filter for components like arms or legs
+        for ctl in uiHost.attr(comp_ctl_list).listConnections():
+            if ctl.ctl_role.get() == search_token:
+                target_control = ctl.stripNamespace()
+                break
+            elif (
+                search_token in control_map.keys()
+                and ctl.ctl_role.get() == control_map[search_token]
+            ):
+                target_control = ctl.stripNamespace()
+                break
+
+        if target_control:
+            target_control_list.append(target_control)
+        else:
+            # token didn't match with any target control. We will add all
+            # found controls for the match.
+            # This is needed for regular ik match in Control_01
+            for ctl in uiHost.attr(comp_ctl_list).listConnections():
+
+                target_control_list.append(ctl.stripNamespace())
+
+    # gets root node for the given control
+    namespace_value = args[0].split("|")[-1].split(":")
+    if len(namespace_value) > 1:
+        namespace_value = namespace_value[0]
+    else:
+        namespace_value = ""
+
+    root = None
+
+    current_parent = cmds.listRelatives(args[0], fullPath=True, parent=True)
+    if current_parent:
+        current_parent = current_parent[0]
+
+    while not root:
+
+        if cmds.objExists("{}.is_rig".format(current_parent)):
+            root = cmds.ls("{}.is_rig".format(current_parent))[0]
+        else:
+            try:
+                current_parent = cmds.listRelatives(
+                    current_parent, fullPath=True, parent=True
+                )[0]
+            except TypeError:
+                break
+
+    if not root or not target_control_list:
+        pm.displayInfo("Not root or target control list for space transfer")
+        return
+
+    autokey = cmds.listConnections(
+        "{}.{}".format(switch_control, switch_attr), type="animCurve"
+    )
+
+    if autokey:
+        for target_control in target_control_list:
+            cmds.setKeyframe(
+                "{}:{}".format(namespace_value, target_control),
+                "{}.{}".format(switch_control, switch_attr),
+                time=(cmds.currentTime(query=True) - 1.0),
+            )
+
+    # triggers switch
+    ParentSpaceTransfer.showUI(
+        combo_box,
+        switch_control,
+        stripNamespace(switch_control),
+        switch_attr,
+        target_control_list[0],
+    )
+
+    if autokey:
+        for target_control in target_control_list:
+            cmds.setKeyframe(
+                "{}:{}".format(namespace_value, target_control),
+                "{}.{}".format(switch_control, switch_attr),
+                time=(cmds.currentTime(query=True)),
+            )
+
+
+def __switch_xray_ctl_callback(*args):
+    rig_root = None
+    if pm.selected():
+        ctl = pm.selected()[0]
+        if ctl.hasAttr("isCtl"):
+            tag = ctl.message.listConnections(type="controller")[0]
+            rig_root = tag.message.listConnections()[0]
+            if rig_root.hasAttr("is_rig") and rig_root.hasAttr("ctl_x_ray"):
+                if rig_root.ctl_x_ray.get():
+                    rig_root.ctl_x_ray.set(False)
+                else:
+                    rig_root.ctl_x_ray.set(True)
+
+
 def get_option_var_state():
     """Gets dag menu option variable
 
@@ -444,13 +609,13 @@ def install():
     state = get_option_var_state()
 
     cmds.setParent(mgear.menu_id, menu=True)
+    cmds.menuItem(divider=True)
     cmds.menuItem(
         "mgear_dagmenu_menuitem",
         label="mGear Viewport Menu ",
         command=run,
         checkBox=state,
     )
-    cmds.menuItem(divider=True)
 
     run(state)
 
@@ -474,9 +639,15 @@ def mgear_dagmenu_callback(*args, **kwargs):  # @UnusedVariable
 
     # if second argument if not a bool then means that we are running
     # the override
-    if type(args[1]) != bool:
+    if not isinstance(args[1], bool):
         sel = cmds.ls(selection=True, long=True, type="transform")
-        if sel and cmds.objExists("{}.isCtl".format(sel[0])):
+
+        if sel:
+            isCtl = cmds.objExists("{}.isCtl".format(sel[0]))
+            isGuide = cmds.objExists("{}.rig_name".format(sel[0]))
+            isGearGuide = cmds.objExists("{}.isGearGuide".format(sel[0]))
+
+        if sel and isCtl:
             # cleans menu
             _parent_menu = parent_menu.replace('"', "")
             cmds.menu(_parent_menu, edit=True, deleteAllItems=True)
@@ -484,7 +655,7 @@ def mgear_dagmenu_callback(*args, **kwargs):  # @UnusedVariable
             # fills menu
             mgear_dagmenu_fill(_parent_menu, sel[0])
 
-        elif sel and cmds.objExists("{}.isGearGuide".format(sel[0])):
+        elif sel and isGuide or sel and isGearGuide:
             # cleans menu
             _parent_menu = parent_menu.replace('"', "")
             cmds.menu(_parent_menu, edit=True, deleteAllItems=True)
@@ -561,6 +732,14 @@ def mgear_dagmenu_guide_fill(parent_menu, current_guide_locator):
         command=shifter.reloadComponents,
         image="mgear_refresh-cw.svg",
     )
+    if versions.current() >= 20220000:
+        cmds.menuItem(parent=parent_menu, divider=True)
+        cmds.menuItem(
+            parent=parent_menu,
+            label="X-Ray Guide Toggle",
+            command=guide_template.guide_toggle_xray,
+            image="mgear_x.svg",
+        )
 
 
 def mgear_dagmenu_fill(parent_menu, current_control):
@@ -588,49 +767,24 @@ def mgear_dagmenu_fill(parent_menu, current_control):
         #  if x not in child_controls]
 
     child_controls.append(current_control)
+    attrs = _get_switch_node_attrs(current_control, "_blend")
+    attrs2 = _get_switch_node_attrs(current_control, "ref")
+    if attrs or attrs2:
+        ui_host = current_control
 
-    # handles ik fk blend attributes
-    for attr in (
-        cmds.listAttr(current_control, userDefined=True, keyable=True) or []
-    ):
-        if not attr.endswith("_blend") or cmds.addAttr(
-            "{}.{}".format(current_control, attr), query=True, usedAsProxy=True
-        ):
-            continue
-        # found attribute so get current state
-        current_state = cmds.getAttr("{}.{}".format(current_control, attr))
-        states = {0: "Fk", 1: "Ik"}
-
-        rvs_state = states[int(not (current_state))]
-
-        cmds.menuItem(
-            parent=parent_menu,
-            label="Switch {} to {}".format(attr.split("_blend")[0], rvs_state),
-            command=partial(
-                __switch_fkik_callback, current_control, False, attr
-            ),
-            image="kinReroot.png",
-        )
-
-        cmds.menuItem(
-            parent=parent_menu,
-            label="Switch {} to {} + Key".format(
-                attr.split("_blend")[0], rvs_state
-            ),
-            command=partial(
-                __switch_fkik_callback, current_control, True, attr
-            ),
-            image="character.svg",
-        )
-
-        cmds.menuItem(
-            parent=parent_menu,
-            label="Range switch",
-            command=partial(__range_switch_callback, current_control, attr),
-        )
-
-        # divider
-        cmds.menuItem(parent=parent_menu, divider=True)
+    else:
+        try:
+            ui_host = cmds.listConnections(
+                "{}.uiHost_cnx".format(current_control)
+            )[0]
+            attrs = _get_switch_node_attrs(ui_host, "_blend")
+            attrs2 = _get_switch_node_attrs(ui_host, "ref")
+            if not attrs and not attrs2:
+                ui_host = None
+        except ValueError:
+            ui_host = None
+        except TypeError:
+            ui_host = None
 
     # check is given control is an mGear control
     if cmds.objExists("{}.uiHost".format(current_control)):
@@ -641,6 +795,41 @@ def mgear_dagmenu_fill(parent_menu, current_control):
             command=partial(__select_host_callback, current_control),
             image="hotkeySetSettings.png",
         )
+
+        # divider
+        cmds.menuItem(parent=parent_menu, divider=True)
+
+    for attr in attrs:
+        # found attribute so get current state
+        current_state = cmds.getAttr("{}.{}".format(ui_host, attr))
+        states = {0: "Fk", 1: "Ik"}
+
+        rvs_state = states[int(not current_state)]
+
+        cmds.menuItem(
+            parent=parent_menu,
+            label="Switch {} to {}".format(attr.split("_blend")[0], rvs_state),
+            command=partial(__switch_fkik_callback, ui_host, False, attr),
+            image="kinReroot.png",
+        )
+
+        cmds.menuItem(
+            parent=parent_menu,
+            label="Switch {} to {} + Key".format(
+                attr.split("_blend")[0], rvs_state
+            ),
+            command=partial(__switch_fkik_callback, ui_host, True, attr),
+            image="character.svg",
+        )
+
+        cmds.menuItem(
+            parent=parent_menu,
+            label="Range switch",
+            command=partial(__range_switch_callback, ui_host, attr),
+        )
+
+        # divider
+        cmds.menuItem(parent=parent_menu, divider=True)
 
     # select all function
     cmds.menuItem(
@@ -661,15 +850,50 @@ def mgear_dagmenu_fill(parent_menu, current_control):
         image="holder.svg",
     )
 
+    resetOption = cmds.menuItem(
+        parent=parent_menu,
+        subMenu=True,
+        tearOff=False,
+        label="Reset Option",
+    )
+
+    # reset all
+    selection_set = cmds.ls(
+        cmds.listConnections(current_control), type="objectSet"
+    )
+    all_rig_controls = cmds.sets(selection_set, query=True)
+    cmds.menuItem(
+        parent=resetOption,
+        label="Reset all",
+        command=partial(reset_all_keyable_attributes, all_rig_controls),
+    )
+
     # reset all below
     cmds.menuItem(
-        parent=parent_menu,
+        parent=resetOption,
         label="Reset all below",
         command=partial(reset_all_keyable_attributes, child_controls),
     )
 
+    # bindpose
+    cmds.menuItem(
+        parent=resetOption,
+        label="Reset To BindPose",
+        command=partial(bindPose, _current_selection[0]),
+    )
+
+    # divider
+    cmds.menuItem(parent=resetOption, divider=True)
+
+    # reset all SRT
+    cmds.menuItem(
+        parent=resetOption,
+        label="Reset All SRT",
+        command=partial(__reset_all_transforms_callback, all_rig_controls),
+    )
+
     # add transform resets
-    k_attrs = cmds.listAttr(current_control, keyable=True)
+    k_attrs = cmds.listAttr(current_control, keyable=True) or []
     for attr in ("translate", "rotate", "scale"):
         # checks if the attribute is a maya transform attribute
         if [x for x in k_attrs if attr in x and len(x) == len(attr) + 1]:
@@ -677,7 +901,7 @@ def mgear_dagmenu_fill(parent_menu, current_control):
             if attr == "translate":
                 icon = "move_M.png"
             cmds.menuItem(
-                parent=parent_menu,
+                parent=resetOption,
                 label="Reset {}".format(attr),
                 command=partial(
                     __reset_attributes_callback, _current_selection, attr
@@ -756,55 +980,52 @@ def mgear_dagmenu_fill(parent_menu, current_control):
     cmds.menuItem(parent=parent_menu, divider=True)
 
     # handles constrains attributes (constrain switches)
-    for attr in (
-        cmds.listAttr(current_control, userDefined=True, keyable=True) or []
-    ):
+    if ui_host:
+        for attr in _get_switch_node_attrs(ui_host, "ref"):
 
-        # filters switch reference attributes
-        if (
-            cmds.addAttr(
-                "{}.{}".format(current_control, attr),
-                query=True,
-                usedAsProxy=True,
+            part, ctl = (
+                attr.split("_")[0],
+                attr.split("_")[-1].split("Ref")[0].split("ref")[0],
             )
-            or not attr.endswith("ref")
-            and not attr.endswith("Ref")
-        ):
-            continue
+            _p_switch_menu = cmds.menuItem(
+                parent=parent_menu,
+                subMenu=True,
+                tearOff=False,
+                label="Parent {} {}".format(part, ctl),
+                image="dynamicConstraint.svg",
+            )
+            cmds.radioMenuItemCollection(parent=_p_switch_menu)
+            k_values = cmds.addAttr(
+                "{}.{}".format(ui_host, attr), query=True, enumName=True
+            ).split(":")
+            current_state = cmds.getAttr("{}.{}".format(ui_host, attr))
 
-        part, ctl = (
-            attr.split("_")[0],
-            attr.split("_")[-1].split("Ref")[0].split("ref")[0],
-        )
-        _p_switch_menu = cmds.menuItem(
-            parent=parent_menu,
-            subMenu=True,
-            tearOff=False,
-            label="Parent {} {}".format(part, ctl),
-            image="dynamicConstraint.svg",
-        )
-        cmds.radioMenuItemCollection(parent=_p_switch_menu)
-        k_values = cmds.addAttr(
-            "{}.{}".format(current_control, attr), query=True, enumName=True
-        ).split(":")
-        current_state = cmds.getAttr("{}.{}".format(current_control, attr))
+            combo_box = QtWidgets.QComboBox()
 
-        for idx, k_val in enumerate(k_values):
-            if idx == current_state:
-                state = True
-            else:
-                state = False
+            for idx, k_val in enumerate(k_values):
+                combo_box.addItem(k_val)
+                if idx == current_state:
+                    state = True
+                    combo_box.setCurrentIndex(idx)
+                else:
+                    state = False
+                cmds.menuItem(
+                    parent=_p_switch_menu,
+                    label=k_val,
+                    radioButton=state,
+                    command=partial(
+                        __switch_parent_callback, ui_host, attr, idx, k_val
+                    ),
+                )
+
+            combo_box.addItem("__")  # required to include the last item
             cmds.menuItem(
                 parent=_p_switch_menu,
-                label=k_val,
-                radioButton=state,
+                label="++ Space Transfer ++",
                 command=partial(
-                    __switch_parent_callback, current_control, attr, idx, k_val
+                    __space_transfer_callback, ui_host, attr, combo_box
                 ),
             )
-
-    # divider
-    cmds.menuItem(parent=parent_menu, divider=True)
 
     # select all rig controls
     selection_set = cmds.ls(
@@ -824,6 +1045,19 @@ def mgear_dagmenu_fill(parent_menu, current_control):
         command=partial(__keyframe_nodes_callback, child_controls),
         image="setKeyframe.png",
     )
+
+    # divider
+    cmds.menuItem(parent=parent_menu, divider=True)
+
+    # x-ray ctl toggle
+    if versions.current() >= 20220000:
+        cmds.menuItem(parent=parent_menu, divider=True)
+        cmds.menuItem(
+            parent=parent_menu,
+            label="X-Ray CTL Toggle",
+            command=__switch_xray_ctl_callback,
+            image="mgear_x.svg",
+        )
 
 
 def mgear_dagmenu_toggle(state):

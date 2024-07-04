@@ -153,6 +153,7 @@ def _create_control(name,
     npo.setTransformation(t)
     if parent:
         pm.parent(npo, parent)
+    attribute.lockAttribute(npo)
 
     ctl = ico.create(npo,
                      _set_name("ctl"),
@@ -1087,7 +1088,9 @@ def _parent_pivot(pivot, parent):
                 pm.displayWarning("{}: have SRT values. Reset, before edit "
                                   "elements".format(pivot))
             npo = pivot.getParent()
+            attribute.unlockAttribute(npo)
             pm.parent(npo, parent)
+            attribute.lockAttribute(npo)
             # re-connect controller tag
 
             pivotTag = pm.PyNode(pm.controller(pivot, q=True)[0])
@@ -1102,6 +1105,7 @@ def _parent_pivot(pivot, parent):
                           "valid simple rig ctl.".format(parent.name()))
 
 
+@utils.one_undo
 def _edit_pivot_position(ctl):
     """Edit control pivot
 
@@ -1136,6 +1140,7 @@ def _edit_pivot_position(ctl):
         return
 
 
+@utils.one_undo
 def _consolidate_pivot_position(ctl):
     """Consolidate the pivot position after editing
 
@@ -1149,8 +1154,12 @@ def _consolidate_pivot_position(ctl):
         # rig = pm.PyNode(RIG_ROOT)
         rig = _get_simple_rig_root()
         npo = ctl.getParent()
+        attribute.unlockAttribute(npo)
         children = npo.listRelatives(type="transform")
-        pm.parent(children, rig)
+        if children:
+            for ch in children:
+                attribute.unlockAttribute(ch)
+            pm.parent(children, rig)
         # filter out the ctl
         children = [c for c in children if c != ctl]
         # set the npo to his position
@@ -1159,9 +1168,12 @@ def _consolidate_pivot_position(ctl):
         # reparent childrens
         if children:
             pm.parent(children, ctl)
+            for ch in children:
+                attribute.lockAttribute(ch)
         # re-connect/update driven elements
         _update_driven(ctl)
         ctl.attr("edit_mode").set(False)
+        attribute.lockAttribute(npo)
         pm.select(ctl)
     else:
         pm.displayWarning("The control: {} Is NOT in"

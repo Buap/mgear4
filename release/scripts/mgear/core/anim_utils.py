@@ -3,6 +3,8 @@ import re
 import traceback
 from functools import partial
 
+from .six import PY2
+
 # Maya imports
 from maya import cmds
 import pymel.core as pm
@@ -1027,14 +1029,26 @@ def ikFkMatch_with_namespace(
         arrow_vector = start_mid - proj_vector
         arrow_vector *= start_end.normal().length()
 
-        # ensure that the pole vector distance is a minimun of 1 unit
-        while arrow_vector.length() < 1.0:
-            arrow_vector *= 2.0
+        thre = 1e-4
+        # handle the case where three points lie on a line.
+        if (
+            abs(arrow_vector.x) < thre
+            and abs(arrow_vector.y) < thre
+            and abs(arrow_vector.z) < thre
+        ):
+            # can make roll and move up ctrl
+            upv_ctrl_target = _get_mth(upv)
+            transform.matchWorldTransform(upv_ctrl_target, upv_ctrl)
+        else:
+            # ensure that the pole vector distance is a minimun of 1 unit
+            # while arrow_vector.length() < 1.0:
+            while arrow_vector.length() < start_mid.length():
+                arrow_vector *= 2.0
 
-        final_vector = arrow_vector + fk_targets[1].getTranslation(
-            space="world"
-        )
-        upv_ctrl.setTranslation(final_vector, space="world")
+            final_vector = arrow_vector + fk_targets[1].getTranslation(
+                space="world"
+            )
+            upv_ctrl.setTranslation(final_vector, space="world")
 
         # sets blend attribute new value
         o_attr.set(1.0)
@@ -1059,6 +1073,11 @@ def ikFkMatch_with_namespace(
             if roll_attr:
                 roll_attr.set(0)
                 bank_attr.set(0)
+
+        # we match the foot FK after switch blend attr
+        if foot_cnx:
+            for i, c in enumerate(foot_fk):
+                c.setMatrix(foot_FK_matrix[i], worldSpace=True)
 
     # sets keyframes
     if key:
@@ -1189,25 +1208,53 @@ def spine_FKToIK(fkControls, ikControls, matchMatrix_dict=None):
 ##################################################
 
 
+def getMirrorTarget(nameSpace, node):
+    """Find target control to apply mirroring.
+
+    Args:
+        nameSpace (str): Namespace
+        node (PyNode): Node to mirror
+
+    Returns:
+        PyNode: Mirror target
+    """
+
+    if isSideElement(node.name()):
+        nameParts = stripNamespace(node.name()).split("|")[-1]
+        nameParts = swapSideLabel(nameParts)
+        nameTarget = ":".join([nameSpace, nameParts])
+        return getNode(nameTarget)
+    else:
+        # Center controls mirror onto self
+        return node
+
+
 def mirrorPose(flip=False, nodes=None):
     """Summary
 
     Args:
-        flip (bool, optiona): Set the function behaviout to flip
+        flip (bool, options): Set the function behaviour to flip
         nodes (None,  [PyNode]): Controls to mirro/flip the pose
     """
     if nodes is None:
         nodes = pm.selected()
 
+    if not nodes:
+        return
+
     pm.undoInfo(ock=1)
     try:
         nameSpace = False
-        if nodes:
-            nameSpace = getNamespace(nodes[0])
+        nameSpace = getNamespace(nodes[0])
 
         mirrorEntries = []
         for oSel in nodes:
-            mirrorEntries.extend(gatherMirrorData(nameSpace, oSel, flip))
+            target = getMirrorTarget(nameSpace, oSel)
+            mirrorEntries.extend(calculateMirrorData(oSel, target))
+
+            # To flip a pose, do mirroring both ways.
+            if target not in nodes and flip:
+                mirrorEntries.extend(calculateMirrorData(target, oSel))
 
         for dat in mirrorEntries:
             applyMirror(nameSpace, dat)
@@ -1229,7 +1276,7 @@ def mirrorPose(flip=False, nodes=None):
 
 
 def applyMirror(nameSpace, mirrorEntry):
-    """Apply mirro pose
+    """Apply mirror pose
 
     Args:
         nameSpace (str): Namespace
@@ -1256,31 +1303,6 @@ def applyMirror(nameSpace, mirrorEntry):
             "applyMirror failed: {0} {1}: {2}".format(node.name(), attr, e),
             mgear.sev_error,
         )
-
-
-def gatherMirrorData(nameSpace, node, flip):
-    """Get the data to mirror
-
-    Args:
-        nameSpace (str): Namespace
-        node (PyNode): No
-        flip (TYPE): flip option
-
-    Returns:
-        [dict[str]: The mirror data
-    """
-    if isSideNode(node):
-
-        # nameParts = stripNamespace(node.name()).split("|")[-1]
-        nameParts = swapSideLabelNode(node)
-        nameTarget = ":".join([nameSpace, nameParts])
-
-        oTarget = getNode(nameTarget)
-
-        return calculateMirrorData(node, oTarget, flip=flip)
-
-    else:
-        return calculateMirrorData(node, node, flip=False)
 
 
 def calculateMirrorData(srcNode, targetNode, flip=False):
@@ -1328,6 +1350,47 @@ def calculateMirrorData(srcNode, targetNode, flip=False):
             results.append(
                 {"target": srcNode, "attr": invAttrName, "val": flipVal * inv}
             )
+
+        results.append(
+            {
+                "target": targetNode,
+                "attr": invAttrName,
+                "val": srcNode.attr(attrName).get() * inv,
+            }
+        )
+    return results
+
+
+def calculateMirrorDataRBF(srcNode, targetNode):
+    """Calculate the mirror data
+
+    Args:
+        srcNode (str): The source Node
+        targetNode ([dict[str]]): Target node
+        flip (bool, optional): flip option
+
+    Returns:
+        [{"target": node, "attr": at, "val": flipVal}]
+    """
+    results = []
+
+    # mirror attribute of source
+    for attrName in listAttrForMirror(srcNode):
+
+        # Apply "Invert Mirror" check boxes
+        invCheckName = getInvertCheckButtonAttrName(attrName)
+        if not pm.attributeQuery(
+            invCheckName, node=srcNode, shortName=True, exists=True
+        ):
+            inv = -1
+        else:
+            inv = 1
+
+        # if attr name is side specified, record inverted attr name
+        if isSideElement(attrName):
+            invAttrName = swapSideLabel(attrName)
+        else:
+            invAttrName = attrName
 
         results.append(
             {
@@ -1408,13 +1471,16 @@ def mirrorPoseOld(flip=False, nodes=False):
         pm.undoInfo(cck=1)
 
 
-def bindPose(model):
+def bindPose(model, *args):
     """Restore the reset position of the rig
 
     Args:
         model (TYPE): Description
     """
-    nameSpace = getNamespace(model.name())
+    if isinstance(model, pm.PyNode):
+        model = bindPose
+
+    nameSpace = getNamespace(model)
     if nameSpace:
         dagPoseName = nameSpace + ":dagPose1"
     else:
@@ -1855,7 +1921,7 @@ class IkFkTransfer(AbstractAnimationTransfer):
         at = "{}.{}".format(
             self.getHostName(),
             self.switchedAttrShortName.replace("blend", "roll"),
-            at_name
+            at_name,
         )
         if pm.objExists(at):
             return at
@@ -2339,7 +2405,12 @@ class SpineIkFkTransfer(AbstractAnimationTransfer):
         pm.cutKey(fkControls, at=channels, time=(startFrame, endFrame))
         pm.cutKey(ikControls, at=channels, time=(startFrame, endFrame))
 
-        for frame, matchDict in matchMatrix_dict.iteritems():
+        if PY2:
+            dic_items = matchMatrix_dict.iteritems
+        else:
+            dic_items = matchMatrix_dict.items
+
+        for frame, matchDict in dic_items():
             pm.currentTime(frame)
             transferFunc(fkControls, ikControls, matchMatrix_dict=matchDict)
 

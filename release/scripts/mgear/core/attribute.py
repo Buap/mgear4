@@ -15,19 +15,23 @@ from .six import string_types
 #############################################
 
 
-def addAttribute(node,
-                 longName,
-                 attributeType,
-                 value=None,
-                 niceName=None,
-                 shortName=None,
-                 minValue=None,
-                 maxValue=None,
-                 keyable=True,
-                 readable=True,
-                 storable=True,
-                 writable=True,
-                 channelBox=False):
+def addAttribute(
+    node,
+    longName,
+    attributeType,
+    value=None,
+    niceName=None,
+    shortName=None,
+    minValue=None,
+    maxValue=None,
+    keyable=True,
+    readable=True,
+    storable=True,
+    writable=True,
+    channelBox=False,
+    softMinValue=None,
+    softMaxValue=None,
+):
     """Add attribute to a node
 
     Arguments:
@@ -75,6 +79,11 @@ def addAttribute(node,
     if maxValue is not None and maxValue is not False:
         data["maxValue"] = maxValue
 
+    if softMinValue is not None and softMinValue is not False:
+        data["softMinValue"] = softMinValue
+    if softMaxValue is not None and softMaxValue is not False:
+        data["softMaxValue"] = softMaxValue
+
     data["keyable"] = keyable
     data["readable"] = readable
     data["storable"] = storable
@@ -93,18 +102,20 @@ def addAttribute(node,
     return node.attr(longName)
 
 
-def addVector3Attribute(node,
-                        longName,
-                        value=False,
-                        keyable=True,
-                        readable=True,
-                        storable=True,
-                        writable=True,
-                        niceName=None,
-                        shortName=None,
-                        childLabels=["X", "Y", "Z"],
-                        usedAsColor=False,
-                        attributeType="float3"):
+def addVector3Attribute(
+    node,
+    longName,
+    value=False,
+    keyable=True,
+    readable=True,
+    storable=True,
+    writable=True,
+    niceName=None,
+    shortName=None,
+    childLabels=["X", "Y", "Z"],
+    usedAsColor=False,
+    attributeType="float3",
+):
     """
     Add a vector3 attribute to a node
 
@@ -144,7 +155,7 @@ def addVector3Attribute(node,
 
     # child nested attr
     dataChild = {}
-    dataChild["attributeType"] = 'float'
+    dataChild["attributeType"] = "float"
     dataChild["parent"] = longName
 
     node.addAttr(longName, **data)
@@ -160,15 +171,17 @@ def addVector3Attribute(node,
     return node.attr(longName)
 
 
-def addColorAttribute(node,
-                      longName,
-                      value=False,
-                      keyable=True,
-                      readable=True,
-                      storable=True,
-                      writable=True,
-                      niceName=None,
-                      shortName=None):
+def addColorAttribute(
+    node,
+    longName,
+    value=False,
+    keyable=True,
+    readable=True,
+    storable=True,
+    writable=True,
+    niceName=None,
+    shortName=None,
+):
     """
     Add a color attribute to a node
 
@@ -188,29 +201,33 @@ def addColorAttribute(node,
         str: The long name of the new attribute
 
     """
-    return addVector3Attribute(node,
-                               longName,
-                               value=value,
-                               keyable=keyable,
-                               readable=readable,
-                               storable=storable,
-                               writable=writable,
-                               niceName=niceName,
-                               shortName=shortName,
-                               childLabels=["_r", "_g", "_b"],
-                               usedAsColor=True)
+    return addVector3Attribute(
+        node,
+        longName,
+        value=value,
+        keyable=keyable,
+        readable=readable,
+        storable=storable,
+        writable=writable,
+        niceName=niceName,
+        shortName=shortName,
+        childLabels=["_r", "_g", "_b"],
+        usedAsColor=True,
+    )
 
 
-def addEnumAttribute(node,
-                     longName,
-                     value,
-                     enum,
-                     niceName=None,
-                     shortName=None,
-                     keyable=True,
-                     readable=True,
-                     storable=True,
-                     writable=True):
+def addEnumAttribute(
+    node,
+    longName,
+    value,
+    enum,
+    niceName=None,
+    shortName=None,
+    keyable=True,
+    readable=True,
+    storable=True,
+    writable=True,
+):
     """
     Add an enumerate attribute to a node
 
@@ -231,8 +248,9 @@ def addEnumAttribute(node,
     """
 
     if node.hasAttr(longName):
-        mgear.log("Attribute '" + longName + "' already exists",
-                  mgear.sev_warning)
+        mgear.log(
+            "Attribute '" + longName + "' already exists", mgear.sev_warning
+        )
         return
 
     data = {}
@@ -292,18 +310,22 @@ def addProxyAttribute(sourceAttrs, targets, duplicatedPolicy=None):
                         i += 1
                     attrName = sourceAttr.longName() + str(i)
                 elif duplicatedPolicy == "fullName":
-                    attrName = "{}_{}".format(sourceAttr.nodeName(),
-                                              sourceAttr.longName())
+                    attrName = "{}_{}".format(
+                        sourceAttr.nodeName(), sourceAttr.longName()
+                    )
 
             if not target.hasAttr(attrName):
                 target.addAttr(attrName, pxy=sourceAttr)
             else:
                 pm.displayWarning(
                     "The proxy channel %s already exist on: %s."
-                    % (sourceAttr.longName(), target.name()))
+                    % (sourceAttr.longName(), target.name())
+                )
 
 
-def moveChannel(attr, sourceNode, targetNode, duplicatedPolicy=None):
+def moveChannel(
+    attr, sourceNode, targetNode, duplicatedPolicy=None, forceFullName=False
+):
     """Move channels  keeping the output connections.
     Duplicated channel policy, stablish the rule in case the channel already
     exist on the target.
@@ -334,20 +356,25 @@ def moveChannel(attr, sourceNode, targetNode, duplicatedPolicy=None):
     try:
         at = sourceNode.attr(attr)
         if pm.addAttr(at, q=True, usedAsProxy=True):
-            pm.displayWarning("{} is a proxy channel and move operation is "
-                              "not yet supported.".format(attr))
+            pm.displayWarning(
+                "{} is a proxy channel and move operation is "
+                "not yet supported.".format(attr)
+            )
             return
     except Exception:
-        pm.displayWarning("Looks like the {} is not in the"
-                          " source: {}".format(attr, sourceNode.name()))
+        pm.displayWarning(
+            "Looks like the {} is not in the"
+            " source: {}".format(attr, sourceNode.name())
+        )
         return
     atType = at.type()
-    if atType in ["double", "float", "enum"]:
+    if atType in ["double", "float", "enum", "bool"]:
 
         newAtt = None
         attrName = attr
         nName = pm.attributeQuery(
-            at.shortName(), node=at.node(), niceName=True)
+            at.shortName(), node=at.node(), niceName=True
+        )
         # define duplicated attribute policy
         if sourceNode.name() != targetNode.name():
             # this policy doesn't apply for rearrange channels
@@ -364,11 +391,17 @@ def moveChannel(attr, sourceNode, targetNode, duplicatedPolicy=None):
                     newAtt = pm.PyNode(".".join([targetNode.name(), attr]))
 
                 else:
-                    pm.displayWarning("Duplicated channel policy, is not "
-                                      "defined. Move channel operation will "
-                                      "fail if the channel already exist on "
-                                      "the target.")
+                    pm.displayWarning(
+                        "Duplicated channel policy, is not "
+                        "defined. Move channel operation will "
+                        "fail if the channel already exist on "
+                        "the target."
+                    )
                     return False
+
+        if forceFullName:
+            attrName = "{}_{}".format(sourceNode.name(), attr)
+            nName = "{}_{}".format(sourceNode.name(), nName)
 
         outcnx = at.listConnections(p=True)
         if not newAtt:
@@ -384,8 +417,9 @@ def moveChannel(attr, sourceNode, targetNode, duplicatedPolicy=None):
                     kwargs["max"] = max
             elif atType == "enum":
                 en = at.getEnums()
-                oEn = collections.OrderedDict(sorted(en.items(),
-                                                     key=lambda t: t[1]))
+                oEn = collections.OrderedDict(
+                    sorted(en.items(), key=lambda t: t[1])
+                )
                 enStr = ":".join([n for n in oEn])
 
             # delete old attr
@@ -393,21 +427,34 @@ def moveChannel(attr, sourceNode, targetNode, duplicatedPolicy=None):
 
             # rebuild the attr
             if atType in ["double", "float"]:
-                pm.addAttr(targetNode,
-                           ln=attrName,
-                           niceName=nName,
-                           at=atType,
-                           dv=value,
-                           k=True,
-                           **kwargs)
+                pm.addAttr(
+                    targetNode,
+                    ln=attrName,
+                    niceName=nName,
+                    at=atType,
+                    dv=value,
+                    k=True,
+                    **kwargs
+                )
             elif atType == "enum":
-                pm.addAttr(targetNode,
-                           ln=attrName,
-                           niceName=nName,
-                           at="enum",
-                           en=enStr,
-                           dv=value,
-                           k=True)
+                pm.addAttr(
+                    targetNode,
+                    ln=attrName,
+                    niceName=nName,
+                    at="enum",
+                    en=enStr,
+                    dv=value,
+                    k=True,
+                )
+            elif atType == "bool":
+                pm.addAttr(
+                    targetNode,
+                    longName=attrName,
+                    niceName=nName,
+                    attributeType="bool",
+                    defaultValue=value,
+                    keyable=True,
+                )
 
             newAtt = pm.PyNode(".".join([targetNode.name(), attrName]))
         else:
@@ -416,22 +463,26 @@ def moveChannel(attr, sourceNode, targetNode, duplicatedPolicy=None):
         for cnx in outcnx:
             try:
                 pm.connectAttr(newAtt, cnx, f=True)
+                return newAtt
             except RuntimeError:
-                pm.displayError("There is a problem connecting the "
-                                "channel %s  maybe is already move? Please "
-                                "check your configuration" % newAtt.name())
+                pm.displayError(
+                    "There is a problem connecting the "
+                    "channel %s  maybe is already move? Please "
+                    "check your configuration" % newAtt.name()
+                )
 
     else:
-        pm.displayWarning("MoveChannel function can't handle an attribute "
-                          "of type: %s. Only supported 'double' adn 'enum' "
-                          "types." % atType)
+        pm.displayWarning(
+            "MoveChannel function can't handle an attribute "
+            "of type: %s. Only supported 'double' adn 'enum' "
+            "types." % atType
+        )
 
 
-def lockAttribute(node,
-                  attributes=["tx", "ty", "tz",
-                              "rx", "ry", "rz",
-                              "sx", "sy", "sz",
-                              "v"]):
+def lockAttribute(
+    node,
+    attributes=["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz", "v"],
+):
     """Lock attributes of a node.
 
     By defaul will lock the rotation, scale and translation.
@@ -447,11 +498,10 @@ def lockAttribute(node,
     _lockUnlockAttribute(node, attributes, lock=True, keyable=False)
 
 
-def unlockAttribute(node,
-                    attributes=["tx", "ty", "tz",
-                                "rx", "ry", "rz",
-                                "sx", "sy", "sz",
-                                "v"]):
+def unlockAttribute(
+    node,
+    attributes=["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz", "v"],
+):
     """Unlock attributes of a node.
 
     By defaul will unlock the rotation, scale and translation.
@@ -482,10 +532,9 @@ def _lockUnlockAttribute(node, attributes, lock, keyable):
         node.setAttr(attr_name, lock=lock, keyable=keyable)
 
 
-def setKeyableAttributes(nodes,
-                         params=["tx", "ty", "tz",
-                                 "ro", "rx", "ry", "rz",
-                                 "sx", "sy", "sz"]):
+def setKeyableAttributes(
+    nodes, params=["tx", "ty", "tz", "ro", "rx", "ry", "rz", "sx", "sy", "sz"]
+):
     """Set keyable attributes of a node.
 
     By defaul will set keyable the rotation, scale and translation.
@@ -499,10 +548,19 @@ def setKeyableAttributes(nodes,
 
     """
 
-    localParams = ["tx", "ty", "tz",
-                   "ro", "rx", "ry", "rz",
-                   "sx", "sy", "sz",
-                   "v"]
+    localParams = [
+        "tx",
+        "ty",
+        "tz",
+        "ro",
+        "rx",
+        "ry",
+        "rz",
+        "sx",
+        "sy",
+        "sz",
+        "v",
+    ]
 
     if not isinstance(nodes, list):
         nodes = [nodes]
@@ -517,11 +575,22 @@ def setKeyableAttributes(nodes,
                 node.setAttr(attr_name, lock=True, keyable=False)
 
 
-def setNotKeyableAttributes(nodes,
-                            attributes=["tx", "ty", "tz",
-                                        "ro", "rx", "ry", "rz",
-                                        "sx", "sy", "sz",
-                                        "v"]):
+def setNotKeyableAttributes(
+    nodes,
+    attributes=[
+        "tx",
+        "ty",
+        "tz",
+        "ro",
+        "rx",
+        "ry",
+        "rz",
+        "sx",
+        "sy",
+        "sz",
+        "v",
+    ],
+):
     """Set not keyable attributes of a node.
 
     By defaul will set not keyable the rotation, scale and translation.
@@ -558,11 +627,18 @@ def setRotOrder(node, s="XYZ"):
     # automatically adapt the angle values
     # So let's do it manually using the EulerRotation class
 
-    er = datatypes.EulerRotation([pm.getAttr(node + ".rx"),
-                                  pm.getAttr(node + ".ry"),
-                                  pm.getAttr(node + ".rz")],
-                                 unit="degrees")
+    er = datatypes.EulerRotation(
+        [
+            pm.getAttr(node + ".rx"),
+            pm.getAttr(node + ".ry"),
+            pm.getAttr(node + ".rz"),
+        ],
+        unit="degrees",
+    )
     er.reorderIt(s)
+
+    if node.hasAttr("rotate_order"):
+        change_default_value(node.rotate_order, a.index(s))
 
     node.setAttr("ro", a.index(s))
     node.setAttr("rotate", er.x, er.y, er.z)
@@ -573,18 +649,24 @@ def setInvertMirror(node, invList=None):
 
     Arguments:
         node (dagNode): The object to set invert mirror Values
+        invList (list, optional): list of axis to invert ["tx", "tz"]
+
+    i.e: attribute.setInvertMirror(ctl_pyNode, invList=["tx", "tz"] )
+
 
     """
 
-    aDic = {"tx": "invTx",
-            "ty": "invTy",
-            "tz": "invTz",
-            "rx": "invRx",
-            "ry": "invRy",
-            "rz": "invRz",
-            "sx": "invSx",
-            "sy": "invSy",
-            "sz": "invSz"}
+    aDic = {
+        "tx": "invTx",
+        "ty": "invTy",
+        "tz": "invTz",
+        "rx": "invRx",
+        "ry": "invRy",
+        "rz": "invRz",
+        "sx": "invSx",
+        "sy": "invSy",
+        "sz": "invSz",
+    }
 
     for axis in invList:
         if axis not in aDic:
@@ -617,12 +699,14 @@ def addFCurve(node, name="fcurve", keys=[]):
     for key in keys:
         # we use setDrivenKeyframe, because is the only workaround that I found
         # to create an animCurveUU with keyframes
-        pm.setDrivenKeyframe(attr_name,
-                             cd=attrDummy_name,
-                             dv=key[0],
-                             v=key[1],
-                             itt=key[2],
-                             ott=key[2])
+        pm.setDrivenKeyframe(
+            attr_name,
+            cd=attrDummy_name,
+            dv=key[0],
+            v=key[1],
+            itt=key[2],
+            ott=key[2],
+        )
 
     # clean dummy attr
     pm.deleteAttr(attrDummy_name)
@@ -637,8 +721,7 @@ def connect_add_dynamic_pivot(pivots, driven):
 
     Args:
         pivot (dagNode list): pivot translation
-        driven (dagNode): Driven object
-        offset (list): Description
+        driven (dagNode list): Driven object
     """
     if not isinstance(pivots, list):
         pivots = [pivots]
@@ -646,9 +729,11 @@ def connect_add_dynamic_pivot(pivots, driven):
     node.attr("operation").set(1)
     for i, p in enumerate(pivots):
         pm.connectAttr(p.t, node + ".input3D[%s]" % str(i))
-
-    pm.connectAttr(node + ".output3D", driven.rotatePivot)
-    pm.connectAttr(node + ".output3D", driven.scalePivot)
+    if not isinstance(driven, list):
+        driven = [driven]
+    for d in driven:
+        pm.connectAttr(node + ".output3D", d.rotatePivot)
+        pm.connectAttr(node + ".output3D", d.scalePivot)
 
 
 def connect_dynamic_pivot(pivot, driven):
@@ -661,6 +746,56 @@ def connect_dynamic_pivot(pivot, driven):
     """
     pivot.t >> driven.rotatePivot
     pivot.t >> driven.scalePivot
+
+
+def move_input_connections(source, target, type_filter=None):
+    """Move the input connections from source node to target node.
+    The connections can be filtered by type of the incoming node
+
+     exp: attribute.move_input_connections(
+                        cns_obj, cns_off, type_filter="parentConstraint"
+                    )
+
+    Args:
+        source (PyNode): node with input connection
+        target (PyNode): target to receive the input connections
+        type_filter (None, str): node type to filter connections list
+    """
+    kwargs = dict(c=True, p=True, d=False)
+    if type_filter:
+        kwargs["type"] = type_filter
+
+    inputs = source.listConnections(**kwargs)
+    for i in inputs:
+        at_name = i[0].shortName()
+        pm.disconnectAttr(i[0])
+        pm.setAttr(i[0], lock=False, keyable=True)
+        pm.connectAttr(i[1], target.attr(at_name))
+
+
+def move_output_connections(source, target, type_filter=None):
+    """Move the output connections from source node to target node.
+    The connections can be filtered by type of the outgoing node
+
+     exp: attribute.move_output_connections(
+                        cns_obj, cns_off, type_filter="parentConstraint"
+                    )
+
+    Args:
+        source (PyNode): node with output connection
+        target (PyNode): target to receive the input connections
+        type_filter (None, str): node type to filter connections list
+    """
+    kwargs = dict(c=True, p=True, s=False)
+    if type_filter:
+        kwargs["type"] = type_filter
+
+    outputs = source.listConnections(**kwargs)
+    for i in outputs:
+        at_name = i[0].shortName()
+        pm.disconnectAttr(i[0])
+        pm.connectAttr(target.attr(at_name), i[1])
+
 
 ##########################################################
 # PARAMETER DEFINITION
@@ -696,18 +831,20 @@ class ParamDef(object):
         Arguments:
             node (dagNode): The node to add the attribute
         """
-        attr_name = addAttribute(node,
-                                 self.scriptName,
-                                 self.valueType,
-                                 self.value,
-                                 self.niceName,
-                                 self.shortName,
-                                 self.minimum,
-                                 self.maximum,
-                                 self.keyable,
-                                 self.readable,
-                                 self.storable,
-                                 self.writable)
+        attr_name = addAttribute(
+            node,
+            self.scriptName,
+            self.valueType,
+            self.value,
+            self.niceName,
+            self.shortName,
+            self.minimum,
+            self.maximum,
+            self.keyable,
+            self.readable,
+            self.storable,
+            self.writable,
+        )
 
         return node, attr_name
 
@@ -764,18 +901,20 @@ class ParamDef2(ParamDef):
 
     """
 
-    def __init__(self,
-                 scriptName,
-                 valueType,
-                 value,
-                 niceName=None,
-                 shortName=None,
-                 minimum=None,
-                 maximum=None,
-                 keyable=True,
-                 readable=True,
-                 storable=True,
-                 writable=True):
+    def __init__(
+        self,
+        scriptName,
+        valueType,
+        value,
+        niceName=None,
+        shortName=None,
+        minimum=None,
+        maximum=None,
+        keyable=True,
+        readable=True,
+        storable=True,
+        writable=True,
+    ):
 
         self.scriptName = scriptName
         self.niceName = niceName
@@ -802,11 +941,9 @@ class FCurveParamDef(ParamDef):
 
     """
 
-    def __init__(self,
-                 scriptName,
-                 keys=None,
-                 interpolation=0,
-                 extrapolation=0):
+    def __init__(
+        self, scriptName, keys=None, interpolation=0, extrapolation=0
+    ):
 
         self.scriptName = scriptName
         self.keys = keys
@@ -826,11 +963,13 @@ class FCurveParamDef(ParamDef):
         attr_name = addAttribute(node, self.scriptName, "double", 0)
 
         attrDummy_name = addAttribute(
-            node, self.scriptName + "_dummy", "double", 0)
+            node, self.scriptName + "_dummy", "double", 0
+        )
 
         for key in self.keys:
             pm.setDrivenKeyframe(
-                attr_name, cd=attrDummy_name, dv=key[0], v=key[1])
+                attr_name, cd=attrDummy_name, dv=key[0], v=key[1]
+            )
 
         # clean dummy attr
         pm.deleteAttr(attrDummy_name)
@@ -925,7 +1064,8 @@ class enumParamDef(ParamDef):
 
         """
         attr_name = addEnumAttribute(
-            node, self.scriptName, enum=self.enum, value=self.value)
+            node, self.scriptName, enum=self.enum, value=self.value
+        )
 
         return node, attr_name
 
@@ -950,6 +1090,7 @@ class enumParamDef(ParamDef):
 # Default Values functions
 ##########################################################
 
+
 def get_default_value(node, attribute):
     """Get the default attribute value
 
@@ -960,9 +1101,7 @@ def get_default_value(node, attribute):
     Returns:
         variant: The attribute value
     """
-    return pm.attributeQuery(attribute,
-                             node=node,
-                             listDefault=True)[0]
+    return pm.attributeQuery(attribute, node=node, listDefault=True)[0]
 
 
 def set_default_value(node, attribute):
@@ -977,8 +1116,29 @@ def set_default_value(node, attribute):
 
     defVal = get_default_value(node, attribute)
     try:
-        node.attr(attribute).set(defVal)
+        if attribute in ["ro", "rotateOrder"]:
+            # custom metadata rot order attr
+            rotOrder = "rotate_order"
+            if pm.attributeQuery(rotOrder, node=node, exists=True):
+                # print(
+                #     "Resetting rotate Order for {} using custom metadata".format(
+                #         node
+                #     )
+                # )
+                intNum = pm.getAttr("{}.{}".format(node, rotOrder))
+                if not pm.getAttr("{}.rotateOrder".format(node), lock=True):
+                    pm.setAttr("{}.rotateOrder".format(node), intNum)
+            else:
+                pm.displayInfo(
+                    "No custom rotate order metadata found in {}. XYZ rotate order NOT reset".format(
+                        node
+                    )
+                )
+                # node.attr(attribute).set(defVal)
+        else:
+            node.attr(attribute).set(defVal)
     except RuntimeError:
+        # print("Failed to reset: {}".format(attribute))
         pass
 
 
@@ -1013,11 +1173,22 @@ def reset_selected_channels_value(objects=None, attributes=None):
             set_default_value(obj, attr)
 
 
-def reset_SRT(objects=None,
-              attributes=["tx", "ty", "tz",
-                          "rx", "ry", "rz",
-                          "sx", "sy", "sz",
-                          "v"]):
+def reset_SRT(
+    objects=None,
+    attributes=[
+        "tx",
+        "ty",
+        "tz",
+        "rx",
+        "ry",
+        "rz",
+        "sx",
+        "sy",
+        "sz",
+        "v",
+        "ro",
+    ],
+):
     """Reset Scale Rotation and translation attributes to default value
 
     Args:
@@ -1041,6 +1212,7 @@ def smart_reset(*args):
     else:
         reset_SRT()
 
+
 ##########################################################
 # GETTERS
 ##########################################################
@@ -1052,7 +1224,7 @@ def get_channelBox():
     Returns:
         str: channel box path
     """
-    mel_str = 'global string $gChannelBoxName; $temp=$gChannelBoxName;'
+    mel_str = "global string $gChannelBoxName; $temp=$gChannelBoxName;"
     channelBox = pm.mel.eval(mel_str)
     return channelBox
 
@@ -1074,10 +1246,12 @@ def collect_attrs(node, attrs, attrs_list, shapes=False):
                 try:
                     shapes_nodes = node.getShapes()
                 except AttributeError:
-                    pm.displayWarning("Something whent wrong. Looks like {} "
-                                      "don,t have shapes. Please clear "
-                                      "selection and try "
-                                      "again".format(node.name()))
+                    pm.displayWarning(
+                        "Something whent wrong. Looks like {} "
+                        "don,t have shapes. Please clear "
+                        "selection and try "
+                        "again".format(node.name())
+                    )
                     return
                 for sh in shapes_nodes:
                     if sh.hasAttr(at):
@@ -1108,18 +1282,23 @@ def get_selected_channels_full_path():
         node = node[0]
 
         collect_attrs(
-            node, attrs, pm.channelBox(get_channelBox(), q=True, sma=True))
+            node, attrs, pm.channelBox(get_channelBox(), q=True, sma=True)
+        )
 
         # if the attr is from shape node, we need to search in all shapes
-        collect_attrs(node,
-                      attrs,
-                      pm.channelBox(get_channelBox(), q=True, ssa=True),
-                      shapes=True)
+        collect_attrs(
+            node,
+            attrs,
+            pm.channelBox(get_channelBox(), q=True, ssa=True),
+            shapes=True,
+        )
 
         collect_attrs(
-            node, attrs, pm.channelBox(get_channelBox(), q=True, sha=True))
+            node, attrs, pm.channelBox(get_channelBox(), q=True, sha=True)
+        )
         collect_attrs(
-            node, attrs, pm.channelBox(get_channelBox(), q=True, soa=True))
+            node, attrs, pm.channelBox(get_channelBox(), q=True, soa=True)
+        )
 
     return attrs
 
@@ -1136,14 +1315,14 @@ def getSelectedChannels(userDefine=False):
 
     """
     # fetch core's main channelbox
-    attrs = pm.channelBox(get_channelBox(), q=True, sma=True)
+    attrs = pm.channelBox(get_channelBox(), q=True, sma=True) or []
     if userDefine:
         oSel = pm.selected()[0]
         uda = oSel.listAttr(ud=True)
         if attrs:
             attrs = [x for x in attrs if oSel.attr(x) in uda]
         else:
-            return None
+            return []
 
     return attrs
 
@@ -1164,15 +1343,130 @@ def getSelectedObjectChannels(oSel=None, userDefine=False, animatable=False):
     if not oSel:
         oSel = pm.selected()[0]
 
-    channels = [x.name().rsplit(".", 1)[1]
-                for x in oSel.listAttr(ud=userDefine, k=animatable)]
+    channels = [
+        x.name().rsplit(".", 1)[1]
+        for x in oSel.listAttr(ud=userDefine, k=animatable)
+    ]
 
     return channels
+
+
+def has_in_connections(
+    node,
+    attributes=[
+        "translate",
+        "tx",
+        "ty",
+        "tz",
+        "rotate",
+        "rx",
+        "ry",
+        "rz",
+        "scale",
+        "sx",
+        "sy",
+        "sz",
+    ],
+):
+    """
+    Checks if the provided node has any input connections on the specified attributes.
+
+    Args:
+        node (PyNode): The PyNode object for which to check connections.
+        attributes (list, optional): A list of attributes to check for connections.
+                    Defaults to checking all translation,
+        rotation, and scale attributes in all directions.
+
+    Returns:
+        bool: True if any connections are found, False otherwise.
+
+    Examples:
+        >>> jnt = pm.PyNode('myJoint')
+        >>> has_connections(jnt)
+        Found some connections.
+        >>> has_connections(jnt, ['visibility'])
+        No connections found.
+    """
+
+    for attr in attributes:
+        if node.attr(attr).listConnections(d=False):
+            return True
+    return False
+
+
+def disconnect_inputs(
+    node,
+    attributes=[
+        "scale",
+        "sx",
+        "sy",
+        "sz",
+        "translate",
+        "tx",
+        "ty",
+        "tz",
+        "rotate",
+        "rx",
+        "ry",
+        "rz",
+    ],
+):
+    """
+    Disconnects only the input connections of the specified attributes of
+    the provided node.
+
+    Args:
+        node (PyNode): The PyNode object for which to disconnect input
+        connections.
+        attributes (list, optional): A list of attributes to disconnect
+        input connections from. Defaults to disconnecting all translation,
+        rotation, and scale attributes in all directions.
+    """
+    for attr in attributes:
+        connections = node.attr(attr).listConnections(d=False, plugs=True)
+        for conn in connections:
+            pm.disconnectAttr(conn, node.attr(attr))
+
+
+def disconnect_outputs(
+    node,
+    attributes=[
+        "scale",
+        "sx",
+        "sy",
+        "sz",
+        "translate",
+        "tx",
+        "ty",
+        "tz",
+        "rotate",
+        "rx",
+        "ry",
+        "rz",
+    ],
+):
+    """
+    Disconnects only the output connections of the specified attributes of
+    the provided node.
+
+    Args:
+        node (PyNode): The PyNode object for which to disconnect output
+        connections.
+        attributes (list, optional): A list of attributes to disconnect
+        output connections from. Defaults to disconnecting all translation,
+        rotation, and scale attributes in all directions.
+    """
+
+    for attr in attributes:
+        connections = node.attr(attr).listConnections(plugs=True)
+        for conn in connections:
+            pm.disconnectAttr(node.attr(attr), conn)
 
 
 ##########################################################
 # UTIL
 ##########################################################
+
 
 def connectSet(source, target, testInstance):
     """Connect or set attributes
@@ -1223,6 +1517,67 @@ def get_next_available_index(attr):
             if not attr.attr(attr.elements()[e]).listConnections():
                 return e
 
+
+def find_next_available_index(node, attribute):
+    """Find the next available index for a multi-attribute on a given node.
+    This function ins similar to get_next_available_index but with 2 args
+
+    Args:
+        node (PyNode): Node with multi-attribute.
+        attribute (str): Multi-attribute name.
+
+    Returns:
+        int: Next available index.
+    """
+    idx = 0
+    while node.attr(attribute)[idx].isConnected():
+        idx += 1
+    return idx
+
+
+def connect_message(source, attr):
+    """
+    Connects the 'message' attribute of one or more source nodes to a
+    destination attribute.
+
+    Args:
+        source (str, pm.PyNode, list): The source node(s) with a 'message'
+                                       attribute.
+        attr (str, pm.PyNode): The destination attribute to connect to.
+
+    Raises:
+        TypeError: If the destination attribute is not a message attribute.
+    """
+    if not isinstance(source, list):
+        source = [source]
+
+    for src in source:
+        idx = get_next_available_index(attr)
+        attr_name = "{}[{}]".format(attr, idx)
+
+        src_str = str(src) if isinstance(src, pm.PyNode) else src
+        attr_str = str(attr) if isinstance(attr, pm.PyNode) else attr
+
+        source_attr_type = pm.attributeQuery(
+            "message", node=src_str.split(".")[0], attributeType=True
+        )
+        dest_attr_type = pm.attributeQuery(
+            attr_str.split("[")[0].split(".")[-1],
+            node=attr_str.split(".")[0],
+            attributeType=True,
+        )
+
+        if source_attr_type != "message":
+            raise TypeError("Source attribute is not a message attribute.")
+
+        if dest_attr_type != "message":
+            raise TypeError(
+                "Destination attribute is not a message attribute."
+            )
+
+        pm.connectAttr("{}.message".format(src_str), attr_name)
+
+
 ##########################################################
 # Utility Channels
 ##########################################################
@@ -1234,60 +1589,78 @@ def add_mirror_config_channels(ctl, conf=[0, 0, 0, 0, 0, 0, 0, 0, 0]):
     Args:
      ctl (dagNode): Control Object
     """
-    addAttribute(ctl,
-                 "invTx",
-                 "bool",
-                 conf[0],
-                 keyable=False,
-                 niceName="Invert Mirror TX")
-    addAttribute(ctl,
-                 "invTy",
-                 "bool",
-                 conf[1],
-                 keyable=False,
-                 niceName="Invert Mirror TY")
-    addAttribute(ctl,
-                 "invTz",
-                 "bool",
-                 conf[2],
-                 keyable=False,
-                 niceName="Invert Mirror TZ")
-    addAttribute(ctl,
-                 "invRx",
-                 "bool",
-                 conf[3],
-                 keyable=False,
-                 niceName="Invert Mirror RX")
-    addAttribute(ctl,
-                 "invRy",
-                 "bool",
-                 conf[4],
-                 keyable=False,
-                 niceName="Invert Mirror RY")
-    addAttribute(ctl,
-                 "invRz",
-                 "bool",
-                 conf[5],
-                 keyable=False,
-                 niceName="Invert Mirror RZ")
-    addAttribute(ctl,
-                 "invSx",
-                 "bool",
-                 conf[6],
-                 keyable=False,
-                 niceName="Invert Mirror SX")
-    addAttribute(ctl,
-                 "invSy",
-                 "bool",
-                 conf[7],
-                 keyable=False,
-                 niceName="Invert Mirror SY")
-    addAttribute(ctl,
-                 "invSz",
-                 "bool",
-                 conf[8],
-                 keyable=False,
-                 niceName="Invert Mirror SZ")
+    addAttribute(
+        ctl,
+        "invTx",
+        "bool",
+        conf[0],
+        keyable=False,
+        niceName="Invert Mirror TX",
+    )
+    addAttribute(
+        ctl,
+        "invTy",
+        "bool",
+        conf[1],
+        keyable=False,
+        niceName="Invert Mirror TY",
+    )
+    addAttribute(
+        ctl,
+        "invTz",
+        "bool",
+        conf[2],
+        keyable=False,
+        niceName="Invert Mirror TZ",
+    )
+    addAttribute(
+        ctl,
+        "invRx",
+        "bool",
+        conf[3],
+        keyable=False,
+        niceName="Invert Mirror RX",
+    )
+    addAttribute(
+        ctl,
+        "invRy",
+        "bool",
+        conf[4],
+        keyable=False,
+        niceName="Invert Mirror RY",
+    )
+    addAttribute(
+        ctl,
+        "invRz",
+        "bool",
+        conf[5],
+        keyable=False,
+        niceName="Invert Mirror RZ",
+    )
+    addAttribute(
+        ctl,
+        "invSx",
+        "bool",
+        conf[6],
+        keyable=False,
+        niceName="Invert Mirror SX",
+    )
+    addAttribute(
+        ctl,
+        "invSy",
+        "bool",
+        conf[7],
+        keyable=False,
+        niceName="Invert Mirror SY",
+    )
+    addAttribute(
+        ctl,
+        "invSz",
+        "bool",
+        conf[8],
+        keyable=False,
+        niceName="Invert Mirror SZ",
+    )
 
 
 def toggle_bool_attr(attr):

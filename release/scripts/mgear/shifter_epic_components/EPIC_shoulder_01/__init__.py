@@ -75,11 +75,16 @@ class Component(component.Main):
             tp=self.ctl,
         )
 
+        if self.settings["descriptionName"]:
+            jnt_name = self.name
+        else:
+            jnt_name = "0"
+
         self.jnt_pos.append(
             {
                 "obj": self.ctl,
-                "name": self.name,
-                "guide_relative": self.guide.guide_locators[0],
+                "name": jnt_name,
+                "guide_relative": "root",
             }
         )
 

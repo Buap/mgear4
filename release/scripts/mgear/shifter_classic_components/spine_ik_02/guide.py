@@ -13,8 +13,8 @@ from . import settingsUI as sui
 
 # guide info
 AUTHOR = "Jeremie Passerin, Miquel Campos"
-URL = "www.jeremiepasserin.com, www.miquel-campos.com"
-EMAIL = "geerem@hotmail.com, hello@miquel-campos.com"
+URL = ", www.mcsgear.com"
+EMAIL = ", "
 VERSION = [2, 0, 0]
 TYPE = "spine_ik_02"
 NAME = "spine"
@@ -112,7 +112,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         # Delete old instances of the componet settings window.
         pyqt.deleteInstances(self, MayaQDockWidget)
 
-        super(self.__class__, self).__init__(parent=parent)
+        super(componentSettings, self).__init__(parent=parent)
         self.settingsTab = settingsTab()
 
         self.setup_componentSettingWindow()
@@ -127,7 +127,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setObjectName(self.toolName)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setWindowTitle(TYPE)
-        self.resize(280, 360)
+        self.resize(350, 360)
 
     def create_componentControls(self):
         return

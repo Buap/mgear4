@@ -20,6 +20,7 @@ from mgear import shifter_classic_components
 from mgear import shifter_epic_components
 from mgear.shifter import naming
 import importlib
+from mgear.core import utils
 
 PY2 = sys.version_info[0] == 2
 
@@ -45,6 +46,11 @@ def log_window():
     if mgear.logMode and mgear.use_log_window:
         log_window_name = "mgear_shifter_build_log_window"
         log_window_field_reporter = "mgear_shifter_log_field_reporter"
+
+        # call pm.window(log_window_name, exists=True) 2 times to avoid
+        # false check in Maya 2024
+        pm.window(log_window_name, exists=True)
+
         if not pm.window(log_window_name, exists=True):
             log_win = pm.window(
                 log_window_name,
@@ -66,17 +72,18 @@ def log_window():
             margin_v = 5
             margin_h = 5
             pm.formLayout(
-                form, e=True,
+                form,
+                e=True,
                 attachForm=[
-                    (reporter, 'top', margin_v),
-                    (reporter, 'right', margin_h),
-                    (reporter, 'left', margin_h),
-                    (btn_close, 'bottom', margin_v),
-                    (btn_close, 'right', margin_h),
-                    (btn_close, 'left', margin_h),
+                    (reporter, "top", margin_v),
+                    (reporter, "right", margin_h),
+                    (reporter, "left", margin_h),
+                    (btn_close, "bottom", margin_v),
+                    (btn_close, "right", margin_h),
+                    (btn_close, "left", margin_h),
                 ],
                 attachControl=[
-                    (reporter, 'bottom', margin_v, btn_close),
+                    (reporter, "bottom", margin_v, btn_close),
                 ],
             )
 
@@ -170,12 +177,17 @@ class Rig(object):
         self.groups = {}
         self.subGroups = {}
 
+        self.bindPlanes = {}
+        self.combinedBindPlanes = {}
+
         self.components = {}
         self.componentsIndex = []
 
         self.customStepDic = {}
 
         self.build_data = {}
+
+        self.component_finalize = False
 
     def buildFromDict(self, conf_dict):
         log_window()
@@ -349,6 +361,18 @@ class Rig(object):
                 customSteps = [cs.replace("\\", "/") for cs in customSteps]
             self.customStep(customSteps)
 
+    # @utils.timeFunc
+    def get_guide_data(self):
+        """Get the guide data
+
+        Returns:
+            str: The guide data
+        """
+        if self.guide.guide_template_dict:
+            return json.dumps(self.guide.guide_template_dict)
+        else:
+            return json.dumps(self.guide.get_guide_template_dict())
+
     def initialHierarchy(self):
         """Build the initial hierarchy of the rig.
 
@@ -364,7 +388,9 @@ class Rig(object):
         self.model = primitive.addTransformFromPos(
             None, self.options["rig_name"]
         )
-        attribute.lockAttribute(self.model)
+
+        lockAttrs = ["tx", "ty", "tz", "rx", "ry", "rz", "sx", "sy", "sz"]
+        attribute.lockAttribute(self.model, attributes=lockAttrs)
 
         # --------------------------------------------------
         # INFOS
@@ -440,6 +466,10 @@ class Rig(object):
             "rigScriptNodes", at="message", m=1
         )
 
+        self.guide_data_att = attribute.addAttribute(
+            self.model, "guide_data", "string", self.get_guide_data()
+        )
+
         # ------------------------- -------------------------
         # Global Ctl
         if self.options["worldCtl"]:
@@ -479,7 +509,10 @@ class Rig(object):
         # --------------------------------------------------
         # Basic set of null
         if self.options["joint_rig"]:
+            self.root_joint = None
             self.jnt_org = primitive.addTransformFromPos(self.model, "jnt_org")
+            if self.options["force_SSC"]:
+                self.global_ctl.s >> self.jnt_org.s
             pm.connectAttr(self.jntVis_att, self.jnt_org.attr("visibility"))
 
     def processComponents(self):
@@ -518,6 +551,8 @@ class Rig(object):
                     name + " : " + comp.fullName + " (" + comp.type + ")"
                 )
                 comp.stepMethods[i]()
+                if name == "Finalize":
+                    self.component_finalize = True
 
             if self.options["step"] >= 1 and i >= self.options["step"] - 1:
                 break
@@ -585,6 +620,22 @@ class Rig(object):
         pm.connectAttr(dag_node.message, self.model.rigPoses[0])
         print(dag_node)
 
+        # hide all DG nodes inputs in channel box -----------------------
+        # only hides if components_finalize or All steps are done
+
+        if self.component_finalize:
+            for c in self.model.listHistory(ac=True, f=True):
+                if c.type() != "transform":
+                    c.isHistoricallyInteresting.set(False)
+            try:
+                # hide a guide if the guide_vis pram is turned off
+                if self.guide.model.hasAttr("guide_vis"):
+                    if not self.guide.model.guide_vis.get():
+                        self.guide.model.hide()
+            except AttributeError:
+                # catch error in case we build from serialized guide
+                pass
+
         # Bind skin re-apply
         if self.options["importSkin"]:
             try:
@@ -606,6 +657,7 @@ class Rig(object):
         Returns:
             dict: The collected data
         """
+        self.build_data["MainSettings"] = self.options
         self.build_data["Components"] = []
         for c, comp in self.customStepDic["mgearRun"].components.items():
             self.build_data["Components"].append(comp.build_data)
@@ -630,10 +682,9 @@ class Rig(object):
             )
             file_path = pm.fileDialog2(fileMode=0, fileFilter=ext_filter)[0]
 
-        f = open(file_path, "w")
-        f.write(json.dumps(self.build_data, indent=4))
-        f.close()
-        file_path = None
+        with open(file_path, "w") as f:
+            f.write(json.dumps(self.build_data, indent=4))
+            file_path = None
 
     def add_collected_data_to_root_jnt(self, root_jnt=None):
         """Add collected data to root joint
@@ -654,7 +705,7 @@ class Rig(object):
             )
 
     def get_root_jnt_embbeded(self):
-        """ Get the root joint to embbed the data
+        """Get the root joint to embbed the data
 
         Returns:
             pyNode: Joint
@@ -665,7 +716,8 @@ class Rig(object):
                 return pm.PyNode(j_name)
             except pm.MayaNodeError:
                 pm.displayError(
-                    "{} doesn't exist or is not unique".format(j_name))
+                    "{} doesn't exist or is not unique".format(j_name)
+                )
 
     def addCtl(self, parent, name, m, color, iconShape, **kwargs):
         """Create the control and apply the shape, if this is alrealdy stored
@@ -714,6 +766,9 @@ class Rig(object):
             self.add_controller_tag(ctl, None)
 
         attribute.addAttribute(ctl, "isCtl", "bool", keyable=False)
+        attribute.addAttribute(
+            ctl, "ctl_role", "string", keyable=False, value="world_ctl"
+        )
 
         return ctl
 
@@ -828,18 +883,24 @@ class Rig(object):
         if names:
             return names[1]
 
-    def findRelative(self, guideName):
+    def findRelative(self, guideName, relatives_map={}):
         """Return the objects in the rig matching the guide object.
 
         Args:
             guideName (str): Name of the guide object.
+            relatives_map (dict, optional): Custom relative mapping to
+                    point any object in a component. For example used to point
+                    Auto in upvector reference.
 
         Returns:
-           transform: The relative object
+            transform: The relative object
 
         """
         if guideName is None:
             return self.global_ctl
+
+        if guideName in relatives_map.keys():
+            return relatives_map[guideName]
 
         comp_name = self.getComponentName(guideName)
         relative_name = self.getRelativeName(guideName)

@@ -5,6 +5,8 @@ Shifter component rig class.
 #############################################
 # GLOBAL
 #############################################
+import re
+
 # pymel
 import pymel.core as pm
 from pymel.core import datatypes
@@ -62,9 +64,15 @@ class Main(object):
         self.settings = self.guide.values
         self.setupWS = self.rig.setupWS
 
+        self.WIP = self.options["mode"]
+
         self.name = self.settings["comp_name"]
         self.side = self.settings["comp_side"]
         self.index = self.settings["comp_index"]
+
+        # Init relative ref mapping for custom IK spaces
+        self.relatives_map_upv = {}
+        self.relatives_map = {}
 
         # --------------------------------------------------
         # Shortcut to useful settings
@@ -116,6 +124,9 @@ class Main(object):
         self.jnt_pos = []
         self.jointList = []
 
+        self.bindPlanes = self.rig.bindPlanes
+        self.combinedBindPlanes = self.rig.combinedBindPlanes
+
         self.transform2Lock = []
 
         # Data collector
@@ -151,6 +162,7 @@ class Main(object):
         Get the properties host, create parameters and set layout and logic.
         """
         self.getHost()
+        self.config_bind_planes()
         self.validateProxyChannels()
         self.addFullNameParam()
         self.addAttributes()
@@ -235,7 +247,7 @@ class Main(object):
         self.compCtl = self.root.addAttr("compCtl", at="message", m=1)
 
         # joint --------------------------------
-        if self.options["joint_rig"]:
+        if self.options["joint_rig"] or self.options["joint_soup"]:
             self.component_jnt_org = self.rig.jnt_org
             # The initial assigment of the active jnt and the parent relative
             # jnt is the same, later will be updated base in the user options
@@ -253,6 +265,32 @@ class Main(object):
         """
         return
 
+    def config_bind_planes(self):
+        """This method combine the bind planes."""
+
+        # we process the combine bind planes with the first component
+        if not self.combinedBindPlanes:
+            for k in self.bindPlanes.keys():
+                if len(self.bindPlanes[k]) >= 2:
+                    combined_mesh = pm.polyUnite(
+                        self.bindPlanes[k],
+                        ch=False,
+                        mergeUVSets=True,
+                        name="{}_bindPlane".format(k),
+                    )
+                    if (
+                        isinstance(combined_mesh, list)
+                        and len(combined_mesh) >= 1
+                    ):
+                        combined_mesh = combined_mesh[0]
+
+                else:
+                    combined_mesh = self.bindPlanes[k][0]
+                if not self.WIP:
+                    combined_mesh.visibility.set(False)
+                pm.parent(combined_mesh, self.setupWS)
+                self.combinedBindPlanes[k] = combined_mesh
+
     def addJoint(
         self,
         obj=None,
@@ -266,6 +304,8 @@ class Main(object):
         leaf_joint=False,
         guide_relative=None,
         data_contracts=None,
+        preBind_relative=None,
+        neutral_rot=True,
     ):
         """Add joint as child of the active joint or under driver object.
 
@@ -317,6 +357,8 @@ class Main(object):
                 leaf_joint=leaf_joint,
                 guide_relative=guide_relative,
                 data_contracts=data_contracts,
+                preBind_relative=preBind_relative,
+                neutral_rot=neutral_rot,
             )
 
     def _addJoint(
@@ -330,6 +372,8 @@ class Main(object):
         leaf_joint=False,
         guide_relative=None,
         data_contracts=None,
+        preBind_relative=None,
+        neutral_rot=True,
     ):
         """Add joint as child of the active joint or under driver object.
 
@@ -351,12 +395,19 @@ class Main(object):
                 a leaf joint to  imput the scale. This option is meant for games
             guide_relative (str, optional): Guide locator name tha define joint
                 position
+            preBind_relative (dagNode): if the argument is set will create a
+                message connection to track the prebind reference of the joint
+                to use in the skinning prebind matrix (like Doritos technique ;) .
 
 
         Deleted Parameters:
             dagNode: The newly created joint.
 
         """
+        # force SSC override
+        if self.options["force_SSC"]:
+            segComp = True
+
         if not rot_off:
             rot_off = [
                 self.settings["joint_rot_offset_x"],
@@ -403,7 +454,7 @@ class Main(object):
 
             # check if already have connections
             # for example Mehahuman twist joint already have connections
-            if not jnt.translate.listConnections(d=False):
+            if not attribute.has_in_connections(jnt):
                 # Disconnect inversScale for better preformance
                 if isinstance(self.active_jnt, pm.nodetypes.Joint):
                     try:
@@ -436,9 +487,67 @@ class Main(object):
                         rot_off = rot_off
 
                 if driver:
+                    # if segComp:
+                    #     # if segment compensation is active we handle the scale
+                    #     # outside of the gear matrix contraint
+                    #     srt = "rt"
+                    #     mulmat_node = node.createMultMatrixNode(
+                    #         driver.worldMatrix, self.root.worldInverseMatrix
+                    #     )
+                    #     dm_node = node.createDecomposeMatrixNode(
+                    #         mulmat_node.matrixSum
+                    #     )
+                    #     # check if there is negative scaling and compensate
+                    #     invert_scale = []
+                    #     for v in dm_node.outputScale.get():
+                    #         if v < 0:
+                    #             invert_scale.append(-1.0)
+                    #         else:
+                    #             invert_scale.append(1.0)
+                    #     if -1.0 in invert_scale:
+                    #         node.createMulNode(
+                    #             [
+                    #                 dm_node.outputScaleX,
+                    #                 dm_node.outputScaleY,
+                    #                 dm_node.outputScaleZ,
+                    #             ],
+                    #             invert_scale,
+                    #             [jnt.sx, jnt.sy, jnt.sz],
+                    #         )
+                    #         # if negative scaling we need to inver rotation
+                    #         # directions in X and Y
+                    #         srt = "t"
+                    #     else:
+                    #         pm.connectAttr(dm_node.outputScale, jnt.s)
+
+                    # else:
+                    #     srt = "srt"
+                    # cns_m = applyop.gear_matrix_cns(
+                    #     driver, jnt, rot_off=rot_off, connect_srt=srt
+                    # )
+                    if self.options["joint_worldOri"]:
+                        driver = primitive.addTransformFromPos(
+                            driver,
+                            name=obj.name() + "_world_ori",
+                            pos=transform.getTranslation(driver),
+                        )
+
                     cns_m = applyop.gear_matrix_cns(
-                        driver, jnt, rot_off=rot_off
+                        driver, jnt, rot_off=rot_off, connect_srt="srt"
                     )
+
+                    # # if negative scaling we need to invert rotation directions
+                    # # in X and Y after the constraint matrix is created
+                    # if srt == "t":
+                    #     node.createMulNode(
+                    #         [
+                    #             cns_m.rotateX,
+                    #             cns_m.rotateY,
+                    #             cns_m.rotateZ,
+                    #         ],
+                    #         [-1, -1, 1],
+                    #         [jnt.rx, jnt.ry, jnt.rz],
+                    #     )
 
                     # invert negative scaling in Joints. We only inver Z axis,
                     # so is the only axis that we are checking
@@ -452,32 +561,57 @@ class Main(object):
                     if self.options["force_uniScale"]:
                         UniScale = True
                     if UniScale:
-                        jnt.disconnectAttr("scale")
+                        attribute.disconnect_inputs(jnt, ["scale"])
                         pm.connectAttr(cns_m.scaleZ, jnt.sx)
                         pm.connectAttr(cns_m.scaleZ, jnt.sy)
                         pm.connectAttr(cns_m.scaleZ, jnt.sz)
 
                     # leaf joint
                     if leaf_joint and not UniScale:
-                        jnt.disconnectAttr("scale")
-                        leaf_jnt = primitive.addJoint(
-                            jnt, "leaf_" + jnt.name(), t
-                        )
-                        leaf_jnt.attr("radius").set(1.5)
-                        leaf_jnt.attr("overrideEnabled").set(1)
-                        leaf_jnt.attr("overrideColor").set(13)
-                        leaf_jnt.rotate.set([0, 0, 0])
+                        leaf_joint_name = "leaf_" + jnt.name()
+                        if (
+                            pm.ls(leaf_joint_name)
+                            and self.options["connect_joints"]
+                        ):
+                            leaf_jnt = pm.PyNode(leaf_joint_name)
+                        else:
+                            leaf_jnt = primitive.addJoint(
+                                jnt, "leaf_" + jnt.name(), t
+                            )
+                            leaf_jnt.attr("radius").set(1.5)
+                            leaf_jnt.attr("overrideEnabled").set(1)
+                            leaf_jnt.attr("overrideColor").set(13)
+                            leaf_jnt.rotate.set([0, 0, 0])
+                        # create and connect message to track the leaf joint relation
+                        if not jnt.hasAttr("leaf_joint"):
+                            pm.addAttr(
+                                jnt, ln="leaf_joint", at="message", m=True
+                            )
+                        pm.connectAttr(leaf_jnt.message, jnt.leaf_joint)
+                        self.addToGroup(leaf_jnt, "deformers")
                         # connect scale
+                        jnt.disconnectAttr("scale")
+                        jnt.disconnectAttr("shear")
                         pm.connectAttr(cns_m.scale, leaf_jnt.scale)
+                        pm.connectAttr(cns_m.shear, leaf_jnt.shear)
+
+                    if preBind_relative:
+                        pm.addAttr(
+                            jnt, ln="preBind_relative", at="message", m=False
+                        )
+                        pm.connectAttr(
+                            preBind_relative.message, jnt.preBind_relative
+                        )
 
                 else:
                     cns_m = None
 
-                # Segment scale compensate Off to avoid issues with the
-                # global scale
+                # Segment scale compensate on/Off
+                # TODO: before was always off to avoid issues with the
+                # global scale. Confirm there is no conflicts
                 jnt.setAttr("segmentScaleCompensate", segComp)
 
-                if not keep_off:
+                if not keep_off and neutral_rot:
                     # setting the joint orient compensation in order to
                     # have clean rotation channels
                     jnt.setAttr("jointOrient", 0, 0, 0)
@@ -496,6 +630,15 @@ class Main(object):
                     jnt.attr("jointOrientX").set(r[0])
                     jnt.attr("jointOrientY").set(r[1])
                     jnt.attr("jointOrientZ").set(r[2])
+                elif not neutral_rot:
+                    jnt.setAttr("jointOrient", 0, 0, 0)
+                    driven_m = pm.getAttr(jnt + ".parentInverseMatrix[0]")
+                    m = t * driven_m
+                    tm = datatypes.TransformationMatrix(m)
+                    r = datatypes.degrees(tm.getRotation())
+                    jnt.attr("rotateX").set(r[0])
+                    jnt.attr("rotateY").set(r[1])
+                    jnt.attr("rotateZ").set(r[2])
 
                 # set not keyable
                 attribute.setNotKeyableAttributes(jnt)
@@ -514,13 +657,19 @@ class Main(object):
         if guide_relative:
             if not jnt.hasAttr("guide_relative"):
                 attribute.addAttribute(jnt, "guide_relative", "string")
-            jnt.guide_relative.set(guide_relative)
+            jnt.guide_relative.set(
+                "{}_{}".format(self.fullName, guide_relative)
+            )
 
         if data_contracts:
             if not jnt.hasAttr("data_contracts"):
                 attribute.addAttribute(jnt, "data_contracts", "string")
             jnt.data_contracts.set(data_contracts)
 
+        # # add comp type  metadata
+        # if not jnt.hasAttr("comp_type"):
+        #     attribute.addAttribute(jnt, "comp_type", "string")
+        # jnt.comp_type.set(self.settings["comp_type"])
         return jnt
 
     # old method to allow the joint creation using Maya default nodes
@@ -779,9 +928,6 @@ class Main(object):
         if "degree" not in kwargs.keys():
             kwargs["degree"] = 1
 
-        # print name
-        # fullName = self.getName(name)
-
         # remove the _ctl hardcoded in component name
         if name.endswith("_ctl"):
             name = name[:-4]
@@ -791,15 +937,42 @@ class Main(object):
             name = name[:-3]
 
         # NOTE: this is a dirty workaround to keep backwards compatibility on
-        # control_01 component where the description of the cotrol was just
-        # the ctl suffix.
+        # control_01 and other component where the description of the cotrol
+        # was just the ctl suffix.
         rule = self.options["ctl_name_rule"]
+        source_rule = rule
         if not name:
-            if rule == naming.DEFAULT_NAMING_RULE:
-                rule = r"{component}_{side}{index}_{extension}"
-            else:
-                # this ensure we always have name if the naming rule is custom
-                name = "control"
+            rule = rule.replace(r"_{description}_", "_")
+            rule = rule.replace(r"{description}", "")
+            # Adjust leading underscores
+            leading_underscores = (
+                len(re.match(r"^_+", source_rule).group(0))
+                if re.match(r"^_+", source_rule)
+                else 0
+            )
+            new_leading_underscores = (
+                len(re.match(r"^_+", rule).group(0))
+                if re.match(r"^_+", rule)
+                else 0
+            )
+            while new_leading_underscores > leading_underscores:
+                rule = rule[1:]
+                new_leading_underscores -= 1
+
+            # Adjust trailing underscores
+            trailing_underscores = (
+                len(re.match(r"_+$", source_rule).group(0))
+                if re.match(r"_+$", source_rule)
+                else 0
+            )
+            new_trailing_underscores = (
+                len(re.match(r"_+$", rule).group(0))
+                if re.match(r"_+$", rule)
+                else 0
+            )
+            while new_trailing_underscores > trailing_underscores:
+                rule = rule[:-1]
+                new_trailing_underscores -= 1
 
         fullName = self.getName(
             name,
@@ -825,10 +998,14 @@ class Main(object):
         attribute.addAttribute(ctl, "uiHost", "string", keyable=False)
         ctl.addAttr("uiHost_cnx", at="message", multi=False)
         # set the control Role for complex components. If the component is
-        # of type control_01 or world_ctl the control role will default to None
-        # since is only one control the role is not needed
+        # of type control_01  the control role will default to
+        # a generic name "ctl"
+        if not name:
+            role_name = "ctl"
+        else:
+            role_name = name
         attribute.addAttribute(
-            ctl, "ctl_role", "string", keyable=False, value=name
+            ctl, "ctl_role", "string", keyable=False, value=role_name
         )
 
         # locator reference for quick guide matching
@@ -876,6 +1053,14 @@ class Main(object):
             "string",
             keyable=False,
             value=self.options["side_center_name"],
+        )
+
+        attribute.addEnumAttribute(
+            ctl,
+            "rotate_order",
+            0,
+            ("xyz", "yzx", "zxy", "xzy", "yxz", "zyx"),
+            keyable=False,
         )
 
         # create the attributes to handlde mirror and symetrical pose
@@ -1177,6 +1362,7 @@ class Main(object):
         storable=True,
         writable=True,
         uihost=None,
+        exactName=False,
     ):
         """Add a parameter to the animation property.
 
@@ -1202,6 +1388,11 @@ class Main(object):
         if not uihost:
             uihost = self.uihost
 
+        if exactName:
+            attr_name = longName
+        else:
+            attr_name = self.getAttrName(longName)
+
         if self.options["classicChannelNames"]:
             attr = attribute.addEnumAttribute(
                 uihost,
@@ -1216,12 +1407,12 @@ class Main(object):
                 writable=writable,
             )
         else:
-            if uihost.hasAttr(self.getAttrName(longName)):
-                attr = uihost.attr(self.getAttrName(longName))
+            if uihost.hasAttr(attr_name):
+                attr = uihost.attr(attr_name)
             else:
                 attr = attribute.addEnumAttribute(
                     uihost,
-                    self.getAttrName(longName),
+                    attr_name,
                     value,
                     enum,
                     niceName,
@@ -1549,6 +1740,56 @@ class Main(object):
                     pm.setAttr(node_name + ".colorIfFalseR", 0)
                     pm.connectAttr(node_name + ".outColorR", attr)
 
+    def connect_orientCns2(self):
+        """Connection with ori cns
+
+        Connection definition using orientation constraint.
+        maintainOffset flag is not working correctly.
+        In connect_orientCns2 we add an extra transform as reference to avoid
+        offsets
+
+        """
+
+        self.parent.addChild(self.root)
+        mtx = self.ik_cns.getMatrix(worldSpace=True)
+
+        refArray = self.settings["ikrefarray"]
+
+        if refArray:
+            ref_names = self.get_valid_ref_list(refArray.split(","))
+            if len(ref_names) == 1:
+                ref = self.rig.findRelative(ref_names[0])
+                pm.parent(self.ik_cns, ref)
+            else:
+                ref = []
+                for ref_name in ref_names:
+                    ref.append(self.rig.findRelative(ref_name))
+
+                # ref.append(self.ik_cns)
+                ref_off = []
+                for r in ref:
+                    cns_off = primitive.addTransform(
+                        r,
+                        r.name() + "_offset",
+                        m=mtx,
+                    )
+                    ref_off.append(cns_off)
+                ref_off.append(self.ik_cns)
+                cns_node = pm.orientConstraint(*ref_off, maintainOffset=False)
+                cns_attr = pm.orientConstraint(
+                    cns_node, query=True, weightAliasList=True
+                )
+
+                for i, attr in enumerate(cns_attr):
+                    pm.setAttr(attr, 1.0)
+                    node_name = pm.createNode("condition")
+                    pm.connectAttr(self.ikref_att, node_name + ".firstTerm")
+                    pm.setAttr(node_name + ".secondTerm", i)
+                    pm.setAttr(node_name + ".operation", 0)
+                    pm.setAttr(node_name + ".colorIfTrueR", 1)
+                    pm.setAttr(node_name + ".colorIfFalseR", 0)
+                    pm.connectAttr(node_name + ".outColorR", attr)
+
     def connect_standardWithSimpleIkRef(self):
         """Standard connection definition with simple IK reference."""
 
@@ -1585,7 +1826,12 @@ class Main(object):
                     pm.setAttr(attr, 1.0)
 
     def connectRef(
-        self, refArray, cns_obj, upVAttr=None, init_refNames=False, st=None
+        self,
+        refArray,
+        cns_obj,
+        upVAttr=None,
+        init_refNames=False,
+        st=None,
     ):
         """Connect the cns_obj to a multiple object using parentConstraint.
 
@@ -1593,8 +1839,16 @@ class Main(object):
             refArray (list of dagNode): List of driver objects
             cns_obj (dagNode): The driven object.
             upVAttr (bool): Set if the ref Array is for IK or Up vector
+            init_refNames (bool, optional): Nice name for the references menu
+            st (None, optional): skipTranslate
         """
         if refArray:
+            # mtx = cns_obj.getMatrix(worldSpace=True)
+            if upVAttr:
+                relatives_map = self.relatives_map_upv
+            else:
+                relatives_map = self.relatives_map
+
             if upVAttr and not init_refNames:
                 # we only can perform name validation if the init_refnames are
                 # provided in a separated list. This check ensures backwards
@@ -1607,7 +1861,7 @@ class Main(object):
                 # return if the not ref_names list
                 return
             elif len(ref_names) == 1:
-                ref = self.rig.findRelative(ref_names[0])
+                ref = self.rig.findRelative(ref_names[0], relatives_map)
                 pm.parent(cns_obj, ref)
             else:
                 ref = []
@@ -1617,7 +1871,9 @@ class Main(object):
                     # this is needed because parent constraining  doesn't handle
                     # scaling and the maintain offset will not work properly
                     if cns_obj.sy.get() < 0:
-                        original_trans = self.rig.findRelative(ref_name)
+                        original_trans = self.rig.findRelative(
+                            ref_name, relatives_map
+                        )
                         ref_trans_name = (
                             cns_obj.getName()
                             + "_"
@@ -1636,7 +1892,9 @@ class Main(object):
                             transform.matchWorldTransform(cns_obj, ref_trans)
                         ref.append(ref_trans)
                     else:
-                        ref.append(self.rig.findRelative(ref_name))
+                        ref.append(
+                            self.rig.findRelative(ref_name, relatives_map)
+                        )
                 ref.append(cns_obj)
                 if not st:
                     st = "none"
@@ -1646,6 +1904,24 @@ class Main(object):
                 cns_attr = pm.parentConstraint(
                     cns_node, query=True, weightAliasList=True
                 )
+
+                # ensure there is not offset generated with the constraint
+                # due to the precision rounding
+                # if mtx != cns_obj.getMatrix(worldSpace=True):
+                #     cns_off = primitive.addTransform(
+                #         cns_obj.getParent(),
+                #         cns_obj.name() + "_offset",
+                #         m=mtx,
+                #     )
+                #     attribute.move_input_connections(
+                #         cns_obj, cns_off, type_filter="parentConstraint"
+                #     )
+                #     attribute.move_output_connections(
+                #         cns_obj, cns_off, type_filter="parentConstraint"
+                #     )
+                #     pm.parent(cns_obj, cns_off)
+                #     pm.parent(cns_node, cns_off)
+                #     cns_obj.setMatrix(mtx, worldSpace=True)
                 # check if the ref Array is for IK or Up vector
                 try:
                     if upVAttr:
@@ -1689,6 +1965,7 @@ class Main(object):
 
         """
         if refArray:
+            # mtx = cns_obj.getMatrix(worldSpace=True)
             if init_refNames:
                 # we only can perform name validation if the init_refnames are
                 # provided in a separated list. This check ensures backwards
@@ -1722,6 +1999,24 @@ class Main(object):
                 cns_attr = pm.parentConstraint(
                     cns_node, query=True, weightAliasList=True
                 )
+
+                # ensure there is not offset generated with the constraint
+                # due to the precision rounding
+                # if mtx != cns_obj.getMatrix(worldSpace=True):
+                #     cns_off = primitive.addTransform(
+                #         cns_obj.getParent(),
+                #         cns_obj.name() + "_offset",
+                #         m=mtx,
+                #     )
+                #     attribute.move_input_connections(
+                #         cns_obj, cns_off, type_filter="parentConstraint"
+                #     )
+                #     attribute.move_output_connections(
+                #         cns_obj, cns_off, type_filter="parentConstraint"
+                #     )
+                #     pm.parent(cns_obj, cns_off)
+                #     pm.parent(cns_node, cns_off)
+                #     cns_obj.setMatrix(mtx, worldSpace=True)
 
                 for i, attr in enumerate(cns_attr):
                     node_name = pm.createNode("condition")
@@ -1903,6 +2198,10 @@ class Main(object):
                         # If None the active jnt will be updated to the latest in
                         # each jnt creation
                         jpo["newActiveJnt"] = self.parent_relative_jnt
+                    elif isinstance(jpo["newActiveJnt"], int):
+                        jpo["newActiveJnt"] = self.jointList[
+                            jpo["newActiveJnt"]
+                        ]
                     else:
                         try:
                             # here jpo["newActiveJnt"] is also the string name
@@ -1927,6 +2226,10 @@ class Main(object):
 
                 self.jointList.append(self.addJoint(**jpo))
 
+        for jnt in self.jointList:
+            radiusValue = self.options["joint_radius"]
+            jnt.radius.set(radiusValue)
+
     # =====================================================
     # FINALIZE
     # =====================================================
@@ -1948,6 +2251,16 @@ class Main(object):
 
     def collect_build_data(self):
 
+        # helper function to convert the transforms obj to a str name
+        def store_relative_names(relative_dict):
+            result = {}
+            for key, relative in relative_dict.items():
+                if isinstance(relative, pm.nodetypes.Transform):
+                    result[key] = relative.name()
+                else:
+                    result[key] = None
+            return result
+
         self.build_data["FullName"] = self.fullName
         self.build_data["Name"] = self.name
         self.build_data["Type"] = self.guide.type
@@ -1959,11 +2272,32 @@ class Main(object):
         self.build_data["Ik"] = []
         self.build_data["Twist"] = []
         self.build_data["Squash"] = []
+        self.build_data["Settings"] = self.settings
+        self.build_data["relatives"] = store_relative_names(self.relatives)
+        self.build_data["jointRelatives"] = self.jointRelatives
+        self.build_data["controlRelatives"] = store_relative_names(
+            self.controlRelatives
+        )
+        self.build_data["aliasRelatives"] = self.aliasRelatives
+        if self.guide.parentComponent:
+            self.build_data[
+                "parent_fullName"
+            ] = self.guide.parentComponent.fullName
+            self.build_data["parent_localName"] = self.guide.parentLocalName
+        else:
+            self.build_data["parent_fullName"] = None
+            self.build_data["parent_localName"] = None
 
         # joints
         for j in self.jointList:
             jnt_dict = {}
             jnt_dict["Name"] = j.name()
+
+            # if j.hasAttr("comp_type"):
+            #     jnt_dict["comp_type"] = j.comp_type.get()
+            # else:
+            #     jnt_dict["comp_type"] = ""
+
             jnt_dict.update(self.gather_transform_info(j))
             self.build_data["Joints"].append(jnt_dict)
             if j.hasAttr("data_contracts"):
