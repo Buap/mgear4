@@ -270,7 +270,7 @@ class Component(component.Main):
 
             if i != self.divisions - 1:
                 if i == 0:
-                    guide_relative = self.guide.guide_locators[0]
+                    guide_relative = "root"
                 else:
                     guide_relative = None
                 self.jnt_pos.append(
@@ -281,6 +281,7 @@ class Component(component.Main):
                         ),
                         "guide_relative": guide_relative,
                         "data_contracts": "Twist,Squash",
+                        "leaf_joint": self.settings["leafJoints"],
                     }
                 )
 
@@ -347,7 +348,7 @@ class Component(component.Main):
             {
                 "obj": self.head_ctl,
                 "name": jdn_head,
-                "guide_relative": self.guide.guide_locators[-2],
+                "guide_relative": "neck",
             }
         )
 
@@ -637,11 +638,13 @@ class Component(component.Main):
 
         self.parent.addChild(self.root)
 
-        self.connectRef(self.settings["ikrefarray"], self.ik_cns)
-
-        if not self.settings["chickenStyleIK"]:
-            for axis in ["tx", "ty", "tz"]:
-                self.ik_cns.attr(axis).disconnect()
+        if self.settings["chickenStyleIK"]:
+            skipTranslate = "none"
+        else:
+            skipTranslate = ["x", "y", "z"]
+        self.connectRef(
+            self.settings["ikrefarray"], self.ik_cns, st=skipTranslate
+        )
 
         if self.settings["headrefarray"]:
             ref_names = self.settings["headrefarray"].split(",")

@@ -558,7 +558,7 @@ class Component(component.Main):
                     {
                         "obj": driver,
                         "name": "upperarm",
-                        "guide_relative": self.guide.guide_locators[0],
+                        "guide_relative": "root",
                         "data_contracts": "Ik",
                     }
                 )
@@ -572,7 +572,7 @@ class Component(component.Main):
                         "obj": driver,
                         "name": "lowerarm",
                         "newActiveJnt": current_parent,
-                        "guide_relative": self.guide.guide_locators[1],
+                        "guide_relative": "elbow",
                         "data_contracts": "Ik",
                     }
                 )
@@ -600,7 +600,7 @@ class Component(component.Main):
                 "obj": eff_loc,
                 "name": "hand",
                 "newActiveJnt": current_parent,
-                "guide_relative": self.guide.guide_locators[2],
+                "guide_relative": "wrist",
                 "data_contracts": "Ik",
             }
         )
@@ -1004,7 +1004,7 @@ class Component(component.Main):
         self.tws0_rot.setAttr("sx", 0.001)
         self.tws2_rot.setAttr("sx", 0.001)
 
-        add_node = node.createAddNode(self.roundness_att, 0.0)
+        add_node = node.createAddNode(self.roundness_att, 0.00001)
         pm.connectAttr(add_node + ".output", self.tws1_rot.attr("sx"))
 
         pm.connectAttr(self.armpit_roll_att, self.tws0_rot + ".rotateX")

@@ -308,9 +308,14 @@ class Component(component.Main):
         )
 
         # tws_ref
-        t = transform.getRotationFromAxis(
-            datatypes.Vector(0, -1, 0), self.normal, "xz", self.negate
-        )
+        if self.up_axis == "y":
+            t = transform.getRotationFromAxis(
+                datatypes.Vector(0, -1, 0), self.normal, "xz", self.negate
+            )
+        else:
+            t = transform.getRotationFromAxis(
+                datatypes.Vector(0, 0, -1), self.normal, "xz", self.negate
+            )
         t = transform.setMatrixPosition(t, self.guide.pos["ankle"])
 
         # addind an npo parent transform to fix flip in Maya 2018.2
@@ -455,7 +460,7 @@ class Component(component.Main):
                     {
                         "obj": driver,
                         "name": "thigh",
-                        "guide_relative": self.guide.guide_locators[0],
+                        "guide_relative": "root",
                         "data_contracts": "Ik",
                     }
                 )
@@ -469,7 +474,7 @@ class Component(component.Main):
                         "obj": driver,
                         "name": "calf",
                         "newActiveJnt": current_parent,
-                        "guide_relative": self.guide.guide_locators[1],
+                        "guide_relative": "knee",
                         "data_contracts": "Ik",
                     }
                 )
@@ -504,7 +509,7 @@ class Component(component.Main):
                 "obj": self.end_jnt_off,
                 "name": "foot",
                 "newActiveJnt": current_parent,
-                "guide_relative": self.guide.guide_locators[2],
+                "guide_relative": "ankle",
                 "data_contracts": "Ik",
             }
         )
@@ -598,7 +603,7 @@ class Component(component.Main):
         ref_names = ["Auto", "ikFoot"]
         if self.settings["upvrefarray"]:
             ref_names = ref_names + self.get_valid_alias_list(
-                self.settings["ikrefarray"].split(",")
+                self.settings["upvrefarray"].split(",")
             )
         self.upvref_att = self.addAnimEnumParam(
             "upvref", "UpV Ref", 0, ref_names
@@ -695,9 +700,10 @@ class Component(component.Main):
             "ikSCsolver",
         )
         pm.pointConstraint(self.ik_ctl, self.ikHandleUpvRef)
-        pm.parentConstraint(
-            self.legChainUpvRef[0], self.ik_ctl, self.upv_cns, mo=True
-        )
+        self.relatives_map_upv = {
+            "Auto": self.legChainUpvRef[0],
+            "Foot": self.ik_ctl,
+        }
 
         # Visibilities -------------------------------------
         # shape.dispGeometry
@@ -776,10 +782,10 @@ class Component(component.Main):
 
         applyop.oriCns(ori_ref, self.tws0_loc, maintainOffset=True)
 
-        self.tws0_loc.setAttr("sx", 0.001)
-        self.tws2_loc.setAttr("sx", 0.001)
+        self.tws0_loc.setAttr("sx", 0.000001)
+        self.tws2_loc.setAttr("sx", 0.000001)
 
-        add_node = node.createAddNode(self.roundness_att, 0.0)
+        add_node = node.createAddNode(self.roundness_att, 0.000001)
         pm.connectAttr(add_node + ".output", self.tws1_rot.attr("sx"))
 
         # Volume -------------------------------------------

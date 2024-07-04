@@ -1,5 +1,5 @@
 """Component Control 01 module"""
-
+import ast
 from mgear.shifter import component
 
 from mgear.core import attribute, transform, primitive
@@ -32,10 +32,12 @@ class Component(component.Main):
         self.ik_cns = primitive.addTransform(
             self.root, self.getName("ik_cns"), t
         )
-
+        ctl_name = ast.literal_eval(
+            self.settings["ctlNamesDescription_custom"]
+        )[0]
         self.ctl = self.addCtl(
             self.ik_cns,
-            "ctl",
+            ctl_name,
             t,
             self.color_ik,
             self.settings["icon"],
@@ -71,11 +73,15 @@ class Component(component.Main):
         attribute.setKeyableAttributes(self.ctl, params)
 
         if self.settings["joint"]:
+            if self.settings["descriptionName"]:
+                jnt_name = self.name
+            else:
+                jnt_name = "0"
             self.jnt_pos.append(
                 {
                     "obj": self.ctl,
-                    "name": self.name,
-                    "guide_relative": self.guide.guide_locators[0],
+                    "name": jnt_name,
+                    "guide_relative": "root",
                     "UniScale": self.settings["uniScale"],
                 }
             )

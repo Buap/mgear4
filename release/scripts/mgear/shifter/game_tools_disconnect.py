@@ -15,12 +15,15 @@ import mgear.shifter.game_tools_disconnect_ui as gtUI
 
 from maya.app.general.mayaMixin import MayaQWidgetDockableMixin
 from mgear.core import pyqt
+from mgear.shifter.utils import get_deformer_joints
 from mgear.vendor.Qt import QtCore, QtWidgets
 
 if sys.version_info[0] == 2:
     string_types = (basestring,)
 else:
     string_types = (str,)
+
+S_CHANNELS = ["scale", "scale.scaleX", "scale.scaleY", "scale.scaleZ", "shear"]
 
 SRT_CHANNELS = [
     "translate",
@@ -31,12 +34,7 @@ SRT_CHANNELS = [
     "rotate.rotateX",
     "rotate.rotateY",
     "rotate.rotateZ",
-    "scale",
-    "scale.scaleX",
-    "scale.scaleY",
-    "scale.scaleZ",
-    "shear",
-]
+] + S_CHANNELS
 
 DRIVEN_JOINT_ATTR = "drivenJoint"
 DRIVER_ATTRS = "driverAttrs"
@@ -52,23 +50,38 @@ def disconnect_joints():
     for g in grps:
         cnx, mcons_nodes = get_connections(g.members(), embed_info=True)
         # disconnect (input and output connections from mgear_matrixConstraint)
-        disconnect(cnx)
-        pm.displayInfo(
-            "Joint from group {} has been disconnected".format(g.name())
-        )
+        if cnx:
+            disconnect(cnx)
+            pm.displayInfo(
+                "Joint from group {} has been disconnected".format(g.name())
+            )
+        else:
+            pm.displayWarning(
+                "Rig disconnect is not possible, if it is a MetaHuman try to delete the rig and build again."
+            )
 
 
 @mutils.one_undo
 def connect_joints_from_matrixConstraint():
     # Note: not using message connection in case the rig and the joint are not
     # keep in the same scene
-    for mcon in pm.ls(type="mgear_matrixConstraint"):
+    connected = False
+    cnx_nodes = pm.ls(type="mgear_matrixConstraint")
+    if not cnx_nodes:
+        cnx_nodes = pm.ls(type="decomposeMatrix")
+    for mcon in cnx_nodes:
         if mcon.hasAttr(DRIVEN_JOINT_ATTR) and mcon.getAttr(DRIVEN_JOINT_ATTR):
             jnt_name = mcon.getAttr(DRIVEN_JOINT_ATTR)
             if pm.objExists(jnt_name):
+                connected = True
                 jnt = pm.PyNode(jnt_name)
                 driver_attrs = ast.literal_eval(mcon.getAttr(DRIVER_ATTRS))
                 connect_joint(mcon, jnt, driver_attrs)
+
+    if connected:
+        pm.displayInfo("Joints has been connected")
+    else:
+        pm.displayInfo("Nothing to connected")
 
 
 @mutils.one_undo
@@ -86,6 +99,7 @@ def delete_rig_keep_joints():
             if joints:
                 pm.parent(joints, world=True)
             pm.delete(rig_root.rigGroups.listConnections(type="objectSet"))
+            pm.delete(pm.ls(type="mgear_matrixConstraint"))
             pm.delete(rig_root)
 
             pm.displayInfo("{} deleted.".format(rig_name))
@@ -95,6 +109,8 @@ def delete_rig_keep_joints():
 
 def get_deformers_sets():
     grps = pm.ls("*_deformers_grp", type="objectSet")
+    if not grps:
+        grps = pm.ls("*:*_deformers_grp", type="objectSet")
     return grps
 
 
@@ -108,19 +124,21 @@ def get_rig_root_from_set():
 
 
 def connect_joint(matrixConstraint, joint, driver_attrs):
+    leaf_jnt = None
     for e, chn in enumerate(SRT_CHANNELS):
         if driver_attrs[e]:
-            pm.connectAttr(driver_attrs[e], joint.attr(chn))
+            if joint.hasAttr("leaf_joint"):
+                leaf_jnt = joint.leaf_joint.listConnections()
+            if leaf_jnt and chn in S_CHANNELS:
+                pm.connectAttr(driver_attrs[e], leaf_jnt[0].attr(chn))
+            else:
+                pm.connectAttr(driver_attrs[e], joint.attr(chn))
     pm.connectAttr(
         joint.parentInverseMatrix[0],
-        matrixConstraint.drivenParentInverseMatrix,
+        driver_attrs[-2],
     )
 
 
-#######################################################
-
-# TODO: check if drivenJoint attr is in matrix contraint node and add it if
-# it is missing
 @mutils.one_undo
 def disconnect(cnxDict):
     """Disconnect the joints using the connections dictionary
@@ -133,14 +151,32 @@ def disconnect(cnxDict):
         # from other joints
         if not jnt.startswith("blend_"):
             oJnt = pm.PyNode(jnt)
+            leaf_jnt = None
+
+            if oJnt.hasAttr("leaf_joint"):
+                leaf_jnt = oJnt.leaf_joint.listConnections()
 
             for e, chn in enumerate(SRT_CHANNELS):
-                plug = oJnt.attr(chn)
+                if leaf_jnt and chn in S_CHANNELS:
+                    plug = leaf_jnt[0].attr(chn)
+                    # pm.disconnectAttr(plug)
+                else:
+                    plug = oJnt.attr(chn)
                 if cnxDict["attrs"][i][e]:
-                    pm.disconnectAttr(cnxDict["attrs"][i][e], plug)
+                    try:
+                        pm.disconnectAttr(cnxDict["attrs"][i][e], plug)
+                    except RuntimeError:
+                        pm.displayWarning(
+                            "Plug: {} already disconnected".format(plug.name())
+                        )
+
             if cnxDict["attrs"][i][13]:
                 pm.disconnectAttr(
                     oJnt.parentInverseMatrix[0], cnxDict["attrs"][i][13]
+                )
+            if cnxDict["attrs"][i][14]:
+                pm.disconnectAttr(
+                    oJnt.parentMatrix[0], cnxDict["attrs"][i][14]
                 )
 
 
@@ -152,14 +188,38 @@ def connect(cnxDict, nsRig=None, nsSkin=None):
         nsRig (string, optional): rig namespace
         nsSkin (None, optional): model namespace
     """
+
+    def connect_with_ns(attr, plug, nsRig):
+        # connect with namespace
+        if plug:
+            if nsRig:
+                pm.connectAttr(
+                    attr,
+                    nsRig + ":" + plug,
+                    f=True,
+                )
+            else:
+                pm.connectAttr(
+                    attr,
+                    plug,
+                    f=True,
+                )
+
     for i, jnt in enumerate(cnxDict["joints"]):
-        # try:
+        leaf_jnt = None
         if nsSkin:
             oJnt = pm.PyNode(nsSkin + ":" + jnt)
         else:
             oJnt = pm.PyNode(jnt)
+
+        if oJnt.hasAttr("leaf_joint"):
+            leaf_jnt = oJnt.leaf_joint.listConnections()
         for e, chn in enumerate(SRT_CHANNELS):
-            plug = oJnt.attr(chn)
+            if leaf_jnt and chn in S_CHANNELS:
+                plug = leaf_jnt[0].attr(chn)
+            else:
+                plug = oJnt.attr(chn)
+
             if cnxDict["attrs"][i][e]:
                 if nsRig:
                     pm.connectAttr(
@@ -168,22 +228,10 @@ def connect(cnxDict, nsRig=None, nsSkin=None):
                 else:
                     pm.connectAttr(cnxDict["attrs"][i][e], plug, f=True)
 
-        if cnxDict["attrs"][i][13]:
-            if nsRig:
-                pm.connectAttr(
-                    oJnt.parentInverseMatrix[0],
-                    nsRig + ":" + cnxDict["attrs"][i][13],
-                    f=True,
-                )
-            else:
-                pm.connectAttr(
-                    oJnt.parentInverseMatrix[0],
-                    cnxDict["attrs"][i][13],
-                    f=True,
-                )
-
-        # except Exception:
-        # pm.displayError("{} is not found in the scene".format(jnt))
+        connect_with_ns(
+            oJnt.parentInverseMatrix[0], cnxDict["attrs"][i][13], nsRig
+        )
+        connect_with_ns(oJnt.parentMatrix[0], cnxDict["attrs"][i][14], nsRig)
 
 
 def connectCns(cnxDict, nsRig=None, nsSkin=None):
@@ -248,12 +296,18 @@ def get_connections(source=None, embed_info=False):
     mcons_nodes = []
     if not source:
         source = pm.selected()
-    for x in source:
-        if not x.name().startswith("blend_"):
-            connections["joints"].append(x.name())
+    for jnt in source:
+        leaf_jnt = None
+        if not jnt.name().startswith(("blend_", "leaf_")):
+            connections["joints"].append(jnt.name())
             attrs_list = []
+            if jnt.hasAttr("leaf_joint"):
+                leaf_jnt = jnt.leaf_joint.listConnections()
             for chn in SRT_CHANNELS:
-                at = x.attr(chn)
+                if leaf_jnt and chn in S_CHANNELS:
+                    at = leaf_jnt[0].attr(chn)
+                else:
+                    at = jnt.attr(chn)
                 at_cnx = pm.listConnections(
                     at, p=True, type="mgear_matrixConstraint"
                 )
@@ -264,9 +318,21 @@ def get_connections(source=None, embed_info=False):
                 attrs_list.append(at_cnx)
 
             parentInv_attr = pm.listConnections(
-                x.parentInverseMatrix[0], d=True, p=True
+                jnt.parentInverseMatrix[0], d=True, p=True
             )
             attrs_list.append(parentInv_attr)
+
+            parentMtx_attr = pm.listConnections(
+                jnt.parentMatrix[0], d=True, p=True
+            )
+            # ensure that only defaul mgear connected rigs are disconnected
+            # this will return none if a none supported connection is found
+            if parentMtx_attr and parentMtx_attr[0].node().nodeType() not in [
+                "mgear_mulMatrix",
+                "mgear_matrixConstraint",
+            ]:
+                return None, None
+            attrs_list.append(parentMtx_attr)
 
             attrs_list_checked = []
             mtx_cons = None
@@ -279,7 +345,7 @@ def get_connections(source=None, embed_info=False):
                 else:
                     attrs_list_checked.append(None)
             if mtx_cons and embed_info:
-                embed_driven_joint_data(mtx_cons, x, attrs_list_checked)
+                embed_driven_joint_data(mtx_cons, jnt, attrs_list_checked)
 
             connections["attrs"].append(attrs_list_checked)
     return connections, mcons_nodes
@@ -420,11 +486,7 @@ def exportAssetAssembly(name, rigTopNode, meshTopNode, path, postScript=None):
     # check the folder and script
     # if the target name exist abort and request another name
 
-    deformer_jnts = rigTopNode.rigGroups[3].connections()[0].members()
-    if not deformer_jnts:
-        pm.displayError(
-            "{} is empty. The tool can't find any joint".format(meshTopNode)
-        )
+    deformer_jnts = get_deformer_joints(rigTopNode)
 
     # export connections and cut joint connections
     file_path = os.path.join(path, name + ".jmm")
@@ -603,7 +665,7 @@ class GameToolsDisconnect(MayaQWidgetDockableMixin, QtWidgets.QDialog):
 
     def keyPressEvent(self, event):
         if not event.key() == QtCore.Qt.Key_Escape:
-            super(gameTools, self).keyPressEvent(event)
+            super(GameToolsDisconnect, self).keyPressEvent(event)
 
     def gameTools_window(self):
         """Game tools window"""
@@ -613,7 +675,6 @@ class GameToolsDisconnect(MayaQWidgetDockableMixin, QtWidgets.QDialog):
         self.resize(300, 330)
 
     def gameTools_layout(self):
-
         self.gt_layout = QtWidgets.QVBoxLayout()
         self.gt_layout.addWidget(self.gtUIInst)
 
@@ -749,5 +810,4 @@ def openGameToolsDisconnect(*args):
 
 
 if __name__ == "__main__":
-
     pyqt.showDialog(GameToolsDisconnect)

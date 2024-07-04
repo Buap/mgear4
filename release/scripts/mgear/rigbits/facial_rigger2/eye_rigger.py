@@ -43,6 +43,9 @@ def rig(
     aim_controller="",
     deformers_group="",
     everyNVertex=1,
+    fixedJoints=False,
+    fixedJointsNumber=3,
+    orderFromCenter=False,
 ):
     """Create eyelid and eye rig
 
@@ -71,6 +74,10 @@ def rig(
         aim_controller (None, optional): Description
         deformers_group (None, optional): Description
         everyNVertex (int, optional): Will create a joint every N vertex
+        fixedJoints (bool, optional): If True use a fixed number of joint
+        fixedJointsNumber (int, optional): fixed Number og joint
+        orderFromCenter (bool, optional): if True the order will be from
+            center, and not from right to left
 
     No Longer Returned:
         TYPE: Description
@@ -196,12 +203,16 @@ def rig(
         upEyelid_edge = meshNavigation.edgeRangeInLoopFromMid(
             edgeList, upPos, inPos, outPos
         )
+
         up_crv = curve.createCurveFromOrderedEdges(
             upEyelid_edge, inPos, setName("upperEyelid"), parent=eyeCrv_root
         )
         upCtl_crv = curve.createCurveFromOrderedEdges(
             upEyelid_edge, inPos, setName("upCtl_crv"), parent=eyeCrv_root
         )
+        if side == "R" and orderFromCenter:
+            pm.reverseCurve(up_crv, ch=False)
+            pm.reverseCurve(upCtl_crv, ch=False)
         pm.rebuildCurve(upCtl_crv, s=2, rt=0, rpo=True, ch=False)
 
         lowEyelid_edge = meshNavigation.edgeRangeInLoopFromMid(
@@ -213,6 +224,9 @@ def rig(
         lowCtl_crv = curve.createCurveFromOrderedEdges(
             lowEyelid_edge, inPos, setName("lowCtl_crv"), parent=eyeCrv_root
         )
+        if side == "R" and orderFromCenter:
+            pm.reverseCurve(low_crv, ch=False)
+            pm.reverseCurve(lowCtl_crv, ch=False)
 
         pm.rebuildCurve(lowCtl_crv, s=2, rt=0, rpo=True, ch=False)
 
@@ -457,7 +471,7 @@ def rig(
     # upper eyelid controls
     upperCtlNames = ["inCorner", "upInMid", "upMid", "upOutMid", "outCorner"]
     cvs = upCtl_crv.getCVs(space="world")
-    if side == "R" and not sideRange:
+    if side == "R" and not sideRange and not orderFromCenter:
         # if side == "R":
         cvs = [cv for cv in reversed(cvs)]
         # offset = offset * -1
@@ -588,7 +602,7 @@ def rig(
     ]
 
     cvs = lowCtl_crv.getCVs(space="world")
-    if side == "R" and not sideRange:
+    if side == "R" and not sideRange and not orderFromCenter:
         cvs = [cv for cv in reversed(cvs)]
     for i, cv in enumerate(cvs):
         # we skip the first and last point since is already in the uper eyelid
@@ -888,7 +902,7 @@ def rig(
 
     # Upper Eyelid joints ##################################################
 
-    cvs = up_crv.getCVs(space="world")
+    all_cvs = up_crv.getCVs(space="world")
     upCrv_info = node.createCurveInfoNode(up_crv)
 
     # aim constrain targets and joints
@@ -903,7 +917,14 @@ def rig(
         axis = "-yz"
         wupVector = [0, 1, 0]
 
-    for i, cv in enumerate(cvs):
+    if fixedJoints:
+        cvs = get_evenly_distributed_cvs(all_cvs, fixedJointsNumber)
+        j_idx = 0
+    else:
+        cvs = format_all_cvs(all_cvs)
+
+    # for i, cv in enumerate(cvs):
+    for i, cv in cvs:
         if i % everyNVertex:
             continue
 
@@ -934,14 +955,25 @@ def rig(
         jnt_ref.attr("radius").set(0.08)
         jnt_ref.attr("visibility").set(False)
 
+        # if we don't use fixed joint the idex will be the  cv index
+        if not fixedJoints:
+            j_idx = i
         jnt = rigbits.addJnt(
-            jnt_ref, jnt_base, grp=defset, jntName=setName("upEyelid_jnt", i)
+            jnt_ref,
+            jnt_base,
+            grp=defset,
+            jntName=setName("upEyelid_jnt", j_idx),
         )
         upperEyelid_jnt.append(jnt)
 
+        # increse the j_idx when fixed joints is set.
+        # this ensure  a constant index increment, independent of the cv index
+        if fixedJoints:
+            j_idx += 1
+
     # Lower Eyelid joints ##################################################
 
-    cvs = low_crv.getCVs(space="world")
+    all_cvs = low_crv.getCVs(space="world")
     lowCrv_info = node.createCurveInfoNode(low_crv)
 
     # aim constrain targets and joints
@@ -949,7 +981,14 @@ def rig(
     lowerEyelid_jnt = []
     lowerEyelid_jntRoot = []
 
-    for i, cv in enumerate(cvs):
+    if fixedJoints:
+        cvs = get_evenly_distributed_cvs(all_cvs, fixedJointsNumber)
+        j_idx = 0
+    else:
+        cvs = format_all_cvs(all_cvs)
+
+    # for i, cv in enumerate(cvs):
+    for i, cv in cvs:
         if i in [0, len(cvs) - 1]:
             continue
 
@@ -983,10 +1022,22 @@ def rig(
         jnt_ref.attr("radius").set(0.08)
         jnt_ref.attr("visibility").set(False)
 
+        # if we don't use fixed joint the idex will be the  cv index
+        if not fixedJoints:
+            j_idx = i
+
         jnt = rigbits.addJnt(
-            jnt_ref, jnt_base, grp=defset, jntName=setName("lowEyelid_jnt", i)
+            jnt_ref,
+            jnt_base,
+            grp=defset,
+            jntName=setName("lowEyelid_jnt", j_idx),
         )
         lowerEyelid_jnt.append(jnt)
+
+        # increse the j_idx when fixed joints is set.
+        # this ensure  a constant index increment, independent of the cv index
+        if fixedJoints:
+            j_idx += 1
 
     # Adding channels for eye tracking
     upVTracking_att = attribute.addAttribute(
@@ -1186,6 +1237,31 @@ def rig(
 ##########################################################
 # Helper Functions
 ##########################################################
+
+
+def get_evenly_distributed_cvs(cvs, num_cvs, include_ends=True):
+    total_cvs = len(cvs)
+    if num_cvs > total_cvs:
+        raise ValueError(
+            "Requested number of CVs is greater than total CVs available."
+        )
+    if include_ends:
+        num_cvs -= 2
+    step = total_cvs // (num_cvs + 1)
+    evenly_distributed_cvs = [
+        (i, cvs[i]) for i in range(step, total_cvs, step)
+    ]
+    # If there are more evenly distributed CVs than requested, drop the extras.
+    while len(evenly_distributed_cvs) > num_cvs:
+        evenly_distributed_cvs.pop()
+    if include_ends:
+        evenly_distributed_cvs.insert(0, (0, cvs[0]))
+        evenly_distributed_cvs.append((total_cvs - 1, cvs[-1]))
+    return evenly_distributed_cvs
+
+
+def format_all_cvs(cvs):
+    return [(i, cv) for i, cv in enumerate(cvs)]
 
 
 # Getters

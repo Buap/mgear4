@@ -88,7 +88,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         # Delete old instances of the componet settings window.
         pyqt.deleteInstances(self, MayaQDockWidget)
 
-        super(self.__class__, self).__init__(parent=parent)
+        super(componentSettings, self).__init__(parent=parent)
         self.settingsTab = settingsTab()
 
         self.setup_componentSettingWindow()
@@ -103,7 +103,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setObjectName(self.toolName)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setWindowTitle(TYPE)
-        self.resize(280, 350)
+        self.resize(350, 350)
 
     def create_componentControls(self):
         return

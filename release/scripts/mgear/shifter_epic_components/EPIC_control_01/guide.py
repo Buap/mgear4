@@ -15,7 +15,7 @@ from . import settingsUI as sui
 
 # guide info
 AUTHOR = "Jeremie Passerin, Miquel Campos"
-URL = "www.jeremiepasserin.com, www.miquel-campos.com"
+URL = ", www.mcsgear.com"
 EMAIL = ""
 VERSION = [1, 0, 0]
 TYPE = "EPIC_control_01"
@@ -40,6 +40,7 @@ class Guide(guide.ComponentGuide):
     version = VERSION
 
     connectors = ["orientation"]
+    ctl_names_description = ["ctl"]
 
     # =====================================================
     ##
@@ -68,7 +69,9 @@ class Guide(guide.ComponentGuide):
         self.pIkRefArray = self.addParam("ikrefarray", "string", "")
 
         self.pJoint = self.addParam("joint", "bool", False)
-        self.pJoint = self.addParam("uniScale", "bool", False)
+        self.pUniScale = self.addParam("uniScale", "bool", False)
+
+        self.pDescriptionName = self.addParam("descriptionName", "bool", True)
 
         for s in ["tx", "ty", "tz", "ro", "rx", "ry", "rz", "sx", "sy", "sz"]:
             self.addParam("k_" + s, "bool", True)
@@ -127,7 +130,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
                           'sphere',
                           'square']
 
-        super(self.__class__, self).__init__(parent=parent)
+        super(componentSettings, self).__init__(parent=parent)
         self.settingsTab = settingsTab()
 
         self.setup_componentSettingWindow()
@@ -142,7 +145,7 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.setObjectName(self.toolName)
         self.setWindowFlags(QtCore.Qt.Window)
         self.setWindowTitle(TYPE)
-        self.resize(280, 520)
+        self.resize(350, 520)
 
     def create_componentControls(self):
         return
@@ -180,6 +183,9 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
         self.populateCheck(self.settingsTab.sx_checkBox, "k_sx")
         self.populateCheck(self.settingsTab.sy_checkBox, "k_sy")
         self.populateCheck(self.settingsTab.sz_checkBox, "k_sz")
+
+
+        self.populateCheck(self.settingsTab.descriptionName_checkBox, "descriptionName")
 
         self.settingsTab.ro_comboBox.setCurrentIndex(
             self.root.attr("default_rotorder").get())
@@ -278,6 +284,14 @@ class componentSettings(MayaQWidgetDockableMixin, guide.componentMainSettings):
             partial(self.updateConnector,
                     self.mainSettingsTab.connector_comboBox,
                     self.connector_items))
+
+        self.settingsTab.descriptionName_checkBox.stateChanged.connect(
+            partial(
+                self.updateCheck,
+                self.settingsTab.descriptionName_checkBox,
+                "descriptionName",
+            )
+        )
 
     def eventFilter(self, sender, event):
         if event.type() == QtCore.QEvent.ChildRemoved:
