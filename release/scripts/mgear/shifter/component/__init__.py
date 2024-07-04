@@ -300,7 +300,7 @@ class Main(object):
         segComp=False,
         gearMulMatrix=False,
         rot_off=None,
-        vanilla_nodes=False,
+        vanilla_nodes=True,
         leaf_joint=False,
         guide_relative=None,
         data_contracts=None,
